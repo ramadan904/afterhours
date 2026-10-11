@@ -27,6 +27,8 @@ import { tradeApi } from "./trade-api.js";
 import { simulatorTurn } from "./sim-api.js";
 import { qrSvg } from "./qr.js";
 import { accountApi } from "./account-api.js";
+import { companionPage } from "./companion.js";
+import { icon, manifest, serviceWorker } from "./pwa.js";
 import { readTape, recordTape } from "../market/tape.js";
 import { toolStats, uptimeSeconds } from "./stats.js";
 import { timingSafeEqual } from "node:crypto";
@@ -155,6 +157,11 @@ export function createApp(svc: Services) {
       if (path.startsWith("/api/push/") || path === "/api/tape") return await accountApi(svc, request, url);
 
       if (path === "/qr.svg" && method === "GET") return qrSvg(svc, url);
+      if (path === "/app") return Response.redirect(`${svc.baseUrl}/app/${url.search}`, 301);
+      if (path === "/app/" && method === "GET") return companionPage({ baseUrl: svc.baseUrl, sample: svc.sample });
+      if (path === "/sw.js") return serviceWorker();
+      if (path === "/manifest.webmanifest") return manifest(svc);
+      if (path.startsWith("/icons/")) return icon(path) ?? errorPage("There's nothing here.", 404);
       if (path === "/api/cron/tape") return await cronTape(svc, request);
       if (path === "/sim") return Response.redirect(`${svc.baseUrl}/sim/${url.search}`, 301);
       if (path === "/sim/" && method === "GET") return simulatorPage({ baseUrl: svc.baseUrl, sample: svc.sample });

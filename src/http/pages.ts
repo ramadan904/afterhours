@@ -143,7 +143,7 @@ export function landingPage(p: { baseUrl: string; sample: boolean; repoUrl: stri
   const body = `<main class="wrap">${header}
 <h1>Your tokenized stocks, by voice, at any hour.</h1>
 <p class="muted">The stock market is open about 33 hours a week. Tokenized stocks trade all 168. Afterhours is an Alexa+ add-on that tells you what moved while the market was shut, what your wallet is worth, and lets you propose a trade by voice. The trade only happens when you sign it in your own wallet.</p>
-<div class="row"><a class="btn primary" href="/sim/">Try it in the Alexa+ simulator</a><a class="btn" href="/go">Confirm a trade</a><a class="btn" href="${esc(p.repoUrl)}">Source</a></div>
+<div class="row"><a class="btn primary" href="/sim/">Try it in the Alexa+ simulator</a><a class="btn" href="/app/">Open the app</a><a class="btn" href="/go">Confirm a trade</a><a class="btn" href="${esc(p.repoUrl)}">Source</a></div>
 <div class="card">
 <h2 style="margin-top:0">Ask Alexa</h2>
 <ul>

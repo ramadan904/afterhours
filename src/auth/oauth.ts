@@ -82,6 +82,7 @@ export const mcpResource = (svc: Services) => `${svc.baseUrl}/mcp`;
 export function clientsFromEnv(svc: Services, env: NodeJS.ProcessEnv = process.env): OAuthClient[] {
   const clients: OAuthClient[] = [
     { client_id: "afterhours-simulator", redirect_uris: [`${svc.baseUrl}/sim/`], name: "Afterhours Alexa+ simulator" },
+    { client_id: "afterhours-app", redirect_uris: [`${svc.baseUrl}/app/`], name: "the Afterhours app" },
   ];
   if (env.ALEXA_CLIENT_ID) {
     clients.push({

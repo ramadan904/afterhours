@@ -10,12 +10,17 @@ function scriptsOf(html: string): string[] {
 
 describe("inline scripts compile", () => {
   const { app } = harness();
-  it.each([["/"], ["/sim/"], ["/go?code=123456"], ["authorize"]])("%s", async (path) => {
+  it.each([["/"], ["/sim/"], ["/app/"], ["/go?code=123456"], ["authorize"]])("%s", async (path) => {
     const url = path === "authorize" ? authorizeUrl(pkce().challenge) : BASE + path;
     const html = await (await app(new Request(url))).text();
     const scripts = scriptsOf(html);
     if (path !== "/") expect(scripts.length).toBeGreaterThan(0);
     for (const s of scripts) expect(() => new Script(s)).not.toThrow();
+  });
+
+  it("service worker", async () => {
+    const js = await (await app(new Request(`${BASE}/sw.js`))).text();
+    expect(() => new Script(js)).not.toThrow();
   });
 
   it.each(Object.keys(CARD_URI))("card %s", (kind) => {
