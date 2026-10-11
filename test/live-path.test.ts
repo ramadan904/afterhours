@@ -22,6 +22,17 @@ function liveHarness() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("live data path (Jupiter + Solana RPC shapes)", () => {
+  it("names the close from the calendar, not the feed's refresh time", async () => {
+    const { h, state } = liveHarness();
+    // Jupiter stamps the share price when it refreshed it, which on a Sunday is today.
+    state.shareUpdatedAt = new Date(SUNDAY - 60_000).toISOString();
+    const { tokens } = await linkWallet(h.app);
+    const session = await mcp(h, tokens.access_token);
+    const brief = await session.call("overnight_brief", {});
+    expect(brief.text).toContain("Biggest moves since Friday's close");
+    expect(brief.text).not.toContain("today's close");
+  });
+
   it("prices both legs from one Jupiter call and never says 'sample'", async () => {
     const { h, state } = liveHarness();
     const { tokens } = await linkWallet(h.app);

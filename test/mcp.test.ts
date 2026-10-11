@@ -210,3 +210,22 @@ describe("MCP Apps cards", () => {
     expect((await session.call("list_alerts", {})).ui).toBeNull();
   });
 });
+
+describe("personal briefing", () => {
+  it("leads the market moves with the linked wallet's own overnight change", async () => {
+    const { session } = await linked();
+    const step = await session.call("overnight_brief", {});
+    expect(step.text).toMatch(/Your 4 positions are up \$31\.83 since Friday's close, led by Tesla\. Biggest moves since Friday's close/);
+    expect((step.structured as { portfolio: { leader: string } }).portfolio.leader).toBe("TSLA");
+  });
+
+  it("leaves the wallet out rather than blow the latency budget", async () => {
+    const h = harness({ holdings: { read: () => new Promise((r) => setTimeout(() => r([{ ticker: "TSLA", amount: 1 }]), 2000)) } });
+    const { tokens } = await linkWallet(h.app);
+    const session = await mcp(h, tokens.access_token);
+    const step = await session.call("overnight_brief", {});
+    expect(step.ms).toBeLessThan(500);
+    expect(step.text).not.toContain("Your 1 position");
+    expect((step.structured as { portfolio: unknown }).portfolio).toBeNull();
+  });
+});

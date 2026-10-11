@@ -126,6 +126,43 @@ export function rangeSentence(r: GapReading, range: OvernightRange | null, now: 
   return `That's close to its ${up ? "high" : "low"} ${overnight ? "of the night" : `since ${r.referenceLabel}`}.`;
 }
 
+/** Values holdings at token prices, with each one's move against its share. */
+export function valuePortfolio(holdings: { ticker: string; amount: number }[], readings: GapReading[]) {
+  const positions = holdings
+    .map((h) => {
+      const r = readings.find((x) => x.ticker === h.ticker);
+      const listing = listingByTicker(h.ticker);
+      if (!r || !listing) return null;
+      const valueUsd = h.amount * r.tokenPrice;
+      const changeUsd = r.sharePrice && r.kind !== "stale_reference" ? h.amount * (r.tokenPrice - r.sharePrice) : null;
+      return { ticker: h.ticker, name: listing.spoken, amount: h.amount, valueUsd, changeUsd, reading: r };
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null)
+    .sort((a, b) => b.valueUsd - a.valueUsd);
+  const total = positions.reduce((t, p) => t + p.valueUsd, 0);
+  const change = positions.reduce((t, p) => t + (p.changeUsd ?? 0), 0);
+  const biggest = [...positions].sort((a, b) => Math.abs(b.changeUsd ?? 0) - Math.abs(a.changeUsd ?? 0))[0] ?? null;
+  return { positions, total, change, biggest };
+}
+
+/**
+ * Waits for `work` at most `ms`, then gives up with null. Used where an
+ * optional extra (the wallet in a briefing) must never cost the voice turn
+ * its latency budget; the RPC cache means the next turn usually has it.
+ */
+export async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), ms)));
+  try {
+    return await Promise.race([work.catch(() => null), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** How long a briefing will wait on the wallet before leaving it out. */
+export const BRIEF_WALLET_BUDGET_MS = 250;
+
 function listPhrase(items: string[]): string {
   if (items.length <= 1) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
@@ -204,7 +241,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       _meta: toolUiMeta("overnight_brief"),
       title: "What moved while the market was closed",
       description:
-        "A short spoken briefing: whether the market is open, which tokenized stocks have moved most against their real share price (since the last close when the market is shut), and any of the user's alerts that have triggered. Use for 'what happened overnight?', 'how are stocks doing?', 'anything I should know?', 'morning briefing'.",
+        "A short spoken briefing: whether the market is open, how the user's own positions moved (when a wallet is linked), which tokenized stocks have moved most against their real share price (since the last close when the market is shut), and any of the user's alerts that have triggered. Use for 'what happened overnight?', 'how are stocks doing?', 'anything I should know?', 'morning briefing'.",
       inputSchema: {
         count: z.number().int().min(1).max(5).optional().describe("How many movers to read out. Default 3."),
       },
@@ -212,6 +249,10 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         dataSource: z.enum(["jupiter", "sample"]),
         marketPhase: z.string(),
         movers: z.array(z.object(readingShape)),
+        portfolio: z
+          .object({ totalUsd: z.number(), changeUsd: z.number(), leader: z.string().nullable() })
+          .nullable()
+          .describe("The linked wallet's overnight change, when it could be read within the latency budget."),
         alertsTriggered: z.array(
           z.object({ ticker: z.string(), thresholdPercent: z.number(), gapPercent: z.number(), firedAt: z.string().nullable(), firedGapPercent: z.number() }),
         ),
@@ -238,6 +279,15 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
             parts.push(`Your ${n.reading.spoken} alert at ${pct(n.alert.thresholdBps)} has triggered: ${name} is ${move(n.reading.gapBps!)}.`);
           }
         }
+        // Your own positions come before the market's: it's your money.
+        const wallet = caller.wallet || svc.sample ? await within(svc.holdings.read(caller.wallet ?? ""), BRIEF_WALLET_BUDGET_MS) : null;
+        const mine = wallet ? valuePortfolio(wallet, readings) : null;
+        if (mine && mine.positions.length > 0 && Math.abs(mine.change) >= 1) {
+          const n = mine.positions.length;
+          const lead = n > 1 && mine.biggest?.changeUsd && Math.abs(mine.biggest.changeUsd) >= 1 ? `, led by ${mine.biggest.name}` : "";
+          const since = session.isRegularHours ? "against live share prices" : `since ${mine.positions[0].reading.referenceLabel}`;
+          parts.push(`Your ${n === 1 ? "position is" : `${n} positions are`} ${mine.change > 0 ? "up" : "down"} ${usd(Math.abs(mine.change))} ${since}${lead}.`);
+        }
         if (movers.length === 0) {
           parts.push("Tokenized stocks are all within normal noise of their share prices.");
         } else {
@@ -249,6 +299,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           dataSource: board.source,
           marketPhase: session.phase,
           movers: movers.map(readingOut),
+          portfolio: mine && mine.positions.length > 0 ? { totalUsd: Math.round(mine.total * 100) / 100, changeUsd: Math.round(mine.change * 100) / 100, leader: mine.biggest?.ticker ?? null } : null,
           alertsTriggered: news.map((n) => ({
             ticker: n.alert.ticker,
             thresholdPercent: n.alert.thresholdBps / 100,
@@ -292,7 +343,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const verdict = verdictSentence(r, new Date(now));
         const range =
           r.kind === "overnight_move" || r.kind === "in_line"
-            ? overnightRange(await readTape(svc), r.ticker, r.referenceAt ? Date.parse(r.referenceAt) : now - 16 * 3600_000)
+            ? overnightRange(await readTape(svc), r.ticker, r.closedAt ?? now - 16 * 3600_000)
             : null;
         return say([sampleNote(board) + gapSentence(r), rangeSentence(r, range, now), verdict].filter(Boolean).join(" "), {
           dataSource: board.source,
@@ -336,17 +387,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           return fail("No wallet is linked yet. Link Afterhours in the Alexa app to hear your portfolio.");
         }
         const [{ board, readings }, holdings] = await Promise.all([allReadings(), svc.holdings.read(caller.wallet ?? "")]);
-        const positions = holdings
-          .map((h) => {
-            const r = readings.find((x) => x.ticker === h.ticker);
-            const listing = listingByTicker(h.ticker)!;
-            if (!r) return null;
-            const valueUsd = h.amount * r.tokenPrice;
-            const changeUsd = r.sharePrice && r.kind !== "stale_reference" ? h.amount * (r.tokenPrice - r.sharePrice) : null;
-            return { ticker: h.ticker, name: listing.spoken, amount: h.amount, valueUsd, changeUsd, reading: r };
-          })
-          .filter((p): p is NonNullable<typeof p> => p !== null)
-          .sort((a, b) => b.valueUsd - a.valueUsd);
+        const { positions, total, change, biggest } = valuePortfolio(holdings, readings);
 
         const short = caller.wallet ? `ending in ${caller.wallet.slice(-4).split("").join(" ")}` : "";
         if (positions.length === 0) {
@@ -359,11 +400,8 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           });
         }
 
-        const total = positions.reduce((s, p) => s + p.valueUsd, 0);
-        const change = positions.reduce((s, p) => s + (p.changeUsd ?? 0), 0);
         const closedRef = positions.find((p) => p.reading.kind === "overnight_move" || p.reading.kind === "in_line");
         const since = closedRef && !getMarketSession(new Date(svc.now())).isRegularHours ? ` since ${closedRef.reading.referenceLabel}` : " against live share prices";
-        const biggest = [...positions].sort((a, b) => Math.abs(b.changeUsd ?? 0) - Math.abs(a.changeUsd ?? 0))[0];
         const n = positions.length;
         const parts = [
           `${sampleNote(board)}Your ${n === 1 ? "position is" : `${n} positions are`} worth ${usd(total)}.`,
@@ -371,7 +409,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
             ? `That's ${change > 0 ? "up" : "down"} ${usd(Math.abs(change))}${since}.`
             : `That's about flat${since}.`,
         ];
-        if (n > 1 && biggest.changeUsd && Math.abs(biggest.changeUsd) >= 1) {
+        if (n > 1 && biggest?.changeUsd && Math.abs(biggest.changeUsd) >= 1) {
           parts.push(`The biggest mover is ${biggest.name}, ${biggest.changeUsd > 0 ? "up" : "down"} ${usd(Math.abs(biggest.changeUsd))}.`);
         }
         return say(parts.join(" "), {

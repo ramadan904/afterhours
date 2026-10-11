@@ -10,7 +10,7 @@
  * arbitrage.
  */
 
-import { getMarketSession, toEasternParts, type MarketSession } from "./session.js";
+import { getMarketSession, lastRegularClose, toEasternParts, type MarketSession } from "./session.js";
 import type { PairQuote } from "./prices.js";
 import type { Listing } from "./universe.js";
 
@@ -53,6 +53,8 @@ export interface GapReading {
   referenceAt: string | null;
   /** "Friday's close", "yesterday's close", "the live price". */
   referenceLabel: string;
+  /** While the market is shut: when the regular session last closed (unix ms). */
+  closedAt?: number;
 }
 
 export function gapBps(tokenPrice: number, sharePrice: number | null): number | null {
@@ -113,9 +115,15 @@ export function readGap(
     };
   }
 
-  const label = quote.shareUpdatedAt ? closeLabel(quote.shareUpdatedAt, now) : "the last close";
+  // While the market is shut, the share price *is* the last close, so the
+  // close is named from the exchange calendar. The feed's own timestamp can't
+  // be used: Jupiter's `updatedAt` is when it refreshed the price, which on a
+  // Sunday reads as "today's close" (caught by the live CI run).
+  const closedAt = lastRegularClose(new Date(now)).getTime();
+  const label = closeLabel(closedAt, now);
   return {
     ...base,
+    closedAt,
     kind: Math.abs(bps) < NOISE_FLOOR_BPS ? "in_line" : "overnight_move",
     direction,
     referenceLabel: label,
