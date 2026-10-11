@@ -55,3 +55,6 @@ echo
 echo "MCP endpoint:  $(output McpEndpoint)"
 echo "Simulator:     $URL/sim/"
 echo "Conformance:   npm run conformance -- $URL"
+echo
+echo "Alexa account linking (see docs/ALEXA.md):"
+echo "  client secret: aws secretsmanager get-secret-value --region $REGION --secret-id $(output AlexaClientSecretArn) --query SecretString --output text"

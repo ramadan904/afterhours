@@ -61,6 +61,16 @@ Resources:
         PasswordLength: 48
         ExcludePunctuation: true
 
+  # The client secret Alexa uses for account linking. Generated here; copy it
+  # into the Alexa console (deploy-aws.sh prints the command).
+  AlexaClientSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Afterhours OAuth client secret for Alexa+ account linking
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
   # Authenticates EventBridge's calls to /api/cron/tape.
   CronSecret:
     Type: AWS::SecretsManager::Secret
@@ -90,7 +100,7 @@ Resources:
                 Resource: !GetAtt Table.Arn
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                Resource: [!Ref AuthSecret, !Ref CronSecret]
+                Resource: [!Ref AuthSecret, !Ref CronSecret, !Ref AlexaClientSecret]
               # The planner uses the Anthropic Bedrock (Mantle) client, which
               # signs requests for the bedrock-mantle service.
               - Effect: Allow
@@ -136,6 +146,7 @@ Resources:
             RuntimeEnvironmentSecrets:
               - { Name: AUTH_SECRET, Value: !Ref AuthSecret }
               - { Name: CRON_SECRET, Value: !Ref CronSecret }
+              - { Name: ALEXA_CLIENT_SECRET, Value: !Ref AlexaClientSecret }
       InstanceConfiguration:
         Cpu: 0.25 vCPU
         Memory: 0.5 GB
@@ -208,3 +219,6 @@ Outputs:
     Value: !If [HasPublicUrl, !Sub "${PublicUrl}/mcp", !Sub "https://${Service.ServiceUrl}/mcp"]
   Table:
     Value: !Ref Table
+  AlexaClientSecretArn:
+    Description: Read with aws secretsmanager get-secret-value, then paste into the Alexa console
+    Value: !Ref AlexaClientSecret
