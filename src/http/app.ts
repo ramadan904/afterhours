@@ -11,6 +11,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { Services } from "../services.js";
 import { registerTools } from "../mcp/tools.js";
+import { registerApps } from "../mcp/apps.js";
 import {
   authenticate,
   authorizationServerMetadata,
@@ -28,7 +29,8 @@ import { qrSvg } from "./qr.js";
 import { recordTape } from "../market/tape.js";
 import { timingSafeEqual } from "node:crypto";
 
-export const VERSION = "0.1.0";
+export { VERSION } from "../version.js";
+import { VERSION } from "../version.js";
 const REPO_URL = process.env.REPO_URL ?? "https://github.com/ramadan904/afterhours";
 
 const CORS = {
@@ -98,6 +100,7 @@ async function handleMcp(svc: Services, request: Request): Promise<Response> {
   );
   const extra = authInfo.extra as { sub: string; wallet: string | null };
   registerTools(server, svc, { sub: extra.sub, wallet: extra.wallet });
+  registerApps(server, svc);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

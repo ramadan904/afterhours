@@ -1,6 +1,6 @@
 {
   "name": "afterhours",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Afterhours: an Alexa+ MCP server for tokenized stocks, for the hours the stock market is closed.",
   "license": "MIT",
   "type": "module",

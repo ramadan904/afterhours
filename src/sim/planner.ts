@@ -21,6 +21,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import Anthropic, { BetaFallbackState, betaRefusalFallbackMiddleware } from "@anthropic-ai/sdk";
 import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import { resolveSymbol } from "../market/universe.js";
+import { VERSION } from "../version.js";
 
 export interface Step {
   tool: string;
@@ -29,6 +30,8 @@ export interface Step {
   text: string;
   isError: boolean;
   structured: unknown;
+  /** The tool's MCP Apps card, when it declares one (`_meta.ui.resourceUri`). */
+  ui?: { uri: string; html: string } | null;
 }
 
 export interface Turn {
@@ -47,7 +50,7 @@ export class McpSession {
   private constructor(private readonly client: Client) {}
 
   static async open(endpoint: string, accessToken: string | null, fetchImpl?: typeof fetch): Promise<McpSession> {
-    const client = new Client({ name: "afterhours-alexa-simulator", version: "0.1.0" });
+    const client = new Client({ name: "afterhours-alexa-simulator", version: VERSION });
     const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
       requestInit: accessToken ? { headers: { authorization: `Bearer ${accessToken}` } } : undefined,
       fetch: fetchImpl,
@@ -56,8 +59,26 @@ export class McpSession {
     return new McpSession(client);
   }
 
+  private listed: Awaited<ReturnType<Client["listTools"]>>["tools"] | null = null;
+  private cards = new Map<string, string>();
+
   async tools() {
-    return (await this.client.listTools()).tools;
+    this.listed ??= (await this.client.listTools()).tools;
+    return this.listed;
+  }
+
+  /** Fetches the MCP Apps card a tool declares, as a host would. */
+  async card(tool: string): Promise<{ uri: string; html: string } | null> {
+    const meta = (await this.tools()).find((t) => t.name === tool)?._meta as { ui?: { resourceUri?: string } } | undefined;
+    const uri = meta?.ui?.resourceUri;
+    if (!uri) return null;
+    if (!this.cards.has(uri)) {
+      const res = await this.client.readResource({ uri });
+      const first = res.contents[0] as { text?: string } | undefined;
+      if (typeof first?.text !== "string") return null;
+      this.cards.set(uri, first.text);
+    }
+    return { uri, html: this.cards.get(uri)! };
   }
 
   async call(tool: string, args: Record<string, unknown>): Promise<Step> {
@@ -66,7 +87,8 @@ export class McpSession {
     const ms = Math.round((performance.now() - started) * 10) / 10;
     const content = (res.content ?? []) as { type: string; text?: string }[];
     const text = content.filter((c) => c.type === "text").map((c) => c.text).join(" ");
-    return { tool, args, ms, text, isError: Boolean(res.isError), structured: res.structuredContent ?? null };
+    const ui = res.isError ? null : await this.card(tool).catch(() => null);
+    return { tool, args, ms, text, isError: Boolean(res.isError), structured: res.structuredContent ?? null, ui };
   }
 
   async close() {

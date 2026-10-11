@@ -58,6 +58,7 @@ const CSS = `
 .step pre{white-space:pre-wrap;word-break:break-word;font-size:12px;margin:8px 0 0;color:var(--muted);max-height:220px;overflow:auto}
 .step .args{font-size:13px;color:var(--muted);font-family:ui-monospace,monospace;margin-top:4px;word-break:break-word}
 .acct{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.card-frame{width:100%;height:220px;border:0;border-radius:12px;background:transparent;display:block}
 .disclaimer{font-size:12px;color:var(--muted);margin-top:16px}
 `;
 
@@ -124,7 +125,22 @@ const light=s=>{$("light").className="lightbar "+(s||"")};
 const pct=n=>(n>0?"+":"")+n.toFixed(2)+"%";const usd=n=>"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const escH=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function bars(rows){const max=Math.max(1,...rows.map(r=>Math.abs(r.v)));return "<div class=bars>"+rows.map(r=>"<div class=bar><span>"+escH(r.k)+"</span><span class=track><span class='fill "+(r.v>=0?"pos":"neg")+"' style='left:0;width:"+(Math.abs(r.v)/max*100).toFixed(1)+"%'></span></span><span class='v "+(r.v>=0?"pos":"neg")+"'>"+escH(r.t)+"</span></div>").join("")+"</div>"}
-function visual(step,reply){const d=step&&step.structured;const v=$("visual");if(!d||step.isError){v.innerHTML="<div class=hello>"+escH(reply)+"</div>";return}
+let bridge=null;
+/* A minimal MCP Apps host: renders the tool's ui:// card in a sandboxed
+   iframe and speaks the MCP Apps postMessage protocol with it. */
+function mountCard(step){const v=$("visual");v.innerHTML="";const f=document.createElement("iframe");
+ f.setAttribute("sandbox","allow-scripts");f.setAttribute("title","Afterhours card");f.className="card-frame";f.srcdoc=step.ui.html;v.appendChild(f);
+ if(bridge)window.removeEventListener("message",bridge);
+ const reply=(id,result)=>f.contentWindow.postMessage({jsonrpc:"2.0",id,result},"*");
+ bridge=e=>{if(e.source!==f.contentWindow)return;const m=e.data;if(!m||m.jsonrpc!=="2.0")return;
+  if(m.method==="ui/initialize")reply(m.id,{protocolVersion:"2026-01-26",hostInfo:{name:"Afterhours Alexa+ simulator",version:"1"},hostCapabilities:{openLinks:{}},hostContext:{theme:"dark",displayMode:"inline",availableDisplayModes:["inline"],platform:"web",locale:"en-US",timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,toolInfo:{tool:{name:step.tool}}}});
+  else if(m.method==="ui/notifications/initialized"){f.contentWindow.postMessage({jsonrpc:"2.0",method:"ui/notifications/tool-input",params:{arguments:step.args}},"*");
+   f.contentWindow.postMessage({jsonrpc:"2.0",method:"ui/notifications/tool-result",params:{content:[{type:"text",text:step.text}],structuredContent:step.structured}},"*")}
+  else if(m.method==="ui/notifications/size-changed"&&m.params)f.style.height=Math.min(420,Math.max(80,m.params.height))+"px";
+  else if(m.method==="ui/open-link"){const u=String(m.params&&m.params.url||"");const ok=u.startsWith("https://")||u.startsWith("http://");if(ok)window.open(m.params.url,"_blank","noopener");reply(m.id,ok?{}:{isError:true})}
+  else if(m.id!==undefined)f.contentWindow.postMessage({jsonrpc:"2.0",id:m.id,error:{code:-32601,message:"Not supported"}},"*")};
+ window.addEventListener("message",bridge)}
+function visual(step,reply){const d=step&&step.structured;const v=$("visual");if(step&&step.ui&&!step.isError){mountCard(step);return}if(!d||step.isError){v.innerHTML="<div class=hello>"+escH(reply)+"</div>";return}
  switch(step.tool){
  case "overnight_brief":v.innerHTML="<div class=label>"+escH(d.marketPhase)+" · biggest moves"+(d.dataSource==="sample"?" · sample data":"")+"</div>"+(d.movers.length?bars(d.movers.map(m=>({k:m.token,v:m.gapPercent,t:pct(m.gapPercent)}))):"<div class=hello>All quiet.</div>");break;
  case "check_stock":v.innerHTML="<div class=label>"+escH(d.token)+" vs "+escH(d.comparedWith)+"</div><div class=big>"+usd(d.tokenPrice)+"</div><div class='hello "+((d.gapPercent||0)>=0?"pos":"neg")+"'>"+(d.gapPercent==null?"no reference":pct(d.gapPercent))+"<small>share "+(d.sharePrice?usd(d.sharePrice):"–")+" · "+escH(d.kind.replace("_"," "))+"</small></div>";break;

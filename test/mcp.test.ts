@@ -166,3 +166,47 @@ describe("simulator turn", () => {
     }
   });
 });
+
+describe("MCP Apps cards", () => {
+  it("declares a ui:// card on the visual tools and serves it as an MCP App", async () => {
+    const h = harness();
+    const { tokens } = await linkWallet(h.app);
+    const rpc = async (method: string, params: unknown) =>
+      (
+        await (
+          await h.app(
+            new Request(`${BASE}/mcp`, {
+              method: "POST",
+              headers: { authorization: `Bearer ${tokens.access_token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+            }),
+          )
+        ).json()
+      ).result;
+
+    const tools = (await rpc("tools/list", {})).tools as { name: string; _meta?: { ui?: { resourceUri?: string } } }[];
+    const uiOf = (n: string) => tools.find((t) => t.name === n)?._meta?.ui?.resourceUri;
+    expect(uiOf("overnight_brief")).toBe("ui://afterhours/brief");
+    expect(uiOf("propose_trade")).toBe("ui://afterhours/trade");
+    expect(uiOf("set_alert")).toBeUndefined();
+
+    const resources = (await rpc("resources/list", {})).resources as { uri: string; mimeType: string }[];
+    expect(resources.map((r) => r.uri).sort()).toEqual(["ui://afterhours/brief", "ui://afterhours/portfolio", "ui://afterhours/stock", "ui://afterhours/trade"]);
+    expect(resources.every((r) => r.mimeType === "text/html;profile=mcp-app")).toBe(true);
+
+    const read = (await rpc("resources/read", { uri: "ui://afterhours/trade" })).contents[0];
+    expect(read.mimeType).toBe("text/html;profile=mcp-app");
+    expect(read.text).toContain('"ui/initialize"');
+    expect(read._meta.ui.csp.resourceDomains).toEqual([BASE]);
+  });
+
+  it("hands the simulator each step's card", async () => {
+    const h = harness();
+    const { tokens } = await linkWallet(h.app);
+    const session = await mcp(h, tokens.access_token);
+    const step = await session.call("check_stock", { stock: "Tesla" });
+    expect(step.ui?.uri).toBe("ui://afterhours/stock");
+    expect(step.ui?.html).toMatch(/^<!doctype html>/);
+    expect((await session.call("list_alerts", {})).ui).toBeNull();
+  });
+});

@@ -18,6 +18,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { Services } from "../services.js";
+import { toolUiMeta } from "./apps.js";
 import { LISTINGS, listingByTicker, resolveSymbol } from "../market/universe.js";
 import { getMarketSession } from "../market/session.js";
 import { rankByGap, readGap, NOISE_FLOOR_BPS, type GapReading } from "../market/gap.js";
@@ -200,6 +201,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
   server.registerTool(
     "overnight_brief",
     {
+      _meta: toolUiMeta("overnight_brief"),
       title: "What moved while the market was closed",
       description:
         "A short spoken briefing: whether the market is open, which tokenized stocks have moved most against their real share price (since the last close when the market is shut), and any of the user's alerts that have triggered. Use for 'what happened overnight?', 'how are stocks doing?', 'anything I should know?', 'morning briefing'.",
@@ -262,6 +264,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
   server.registerTool(
     "check_stock",
     {
+      _meta: toolUiMeta("check_stock"),
       title: "Check one tokenized stock",
       description:
         "Price of one tokenized stock (xStock on Solana) and how far it is from the real share: since the last close when the market is shut, or against the live price when it is open. Says whether the gap is a hedgeable dislocation or just a bet on the open. Use for 'how is Tesla doing?', 'is the Nvidia token trading rich?', 'what's Apple at?'.",
@@ -311,6 +314,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
   server.registerTool(
     "my_portfolio",
     {
+      _meta: toolUiMeta("my_portfolio"),
       title: "My tokenized stock portfolio",
       description:
         "Reads the tokenized stocks held in the user's linked Solana wallet, what they are worth now, and how much they have gained or lost since the share market last closed. Read-only. Use for 'how's my portfolio?', 'what do I own?', 'how much am I up?'.",
@@ -456,6 +460,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
   server.registerTool(
     "propose_trade",
     {
+      _meta: toolUiMeta("propose_trade"),
       title: "Propose a buy or sell (signed in the user's wallet)",
       description:
         "Prepares a buy or sell of a tokenized stock, paid in USDC, for the user to approve. This does NOT execute anything: it returns a six-digit code, and the trade only happens if the user opens the confirm page and signs it in their own wallet. Read the code to the user and never say the trade is done. Use for 'buy 50 dollars of Tesla', 'sell 100 dollars of Nvidia'.",
@@ -522,6 +527,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
   server.registerTool(
     "trade_status",
     {
+      _meta: toolUiMeta("trade_status"),
       title: "Status of a proposed trade",
       description:
         "Says whether the user's most recent proposed trade (or the one with the given code) is still waiting for a signature, was submitted, confirmed on Solana, failed, or expired. Use for 'did my trade go through?'.",
