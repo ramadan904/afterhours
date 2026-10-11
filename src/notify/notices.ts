@@ -10,12 +10,16 @@ import { listingByTicker } from "../market/universe.js";
 import { capitalise, clockTime, pct, usd } from "../market/speech.js";
 import type { Notice } from "./push.js";
 import type { TradeIntent } from "../chain/trade.js";
+import { EASTERN, type Zone } from "../market/zones.js";
+
+/** "ET" on a lock screen; "London time" elsewhere. */
+const short = (zone: Zone) => (zone.label === "Eastern" ? "ET" : `${zone.label} time`);
 
 const signed = (bps: number) => `${bps >= 0 ? "up" : "down"} ${pct(bps)}`;
 
-export function alertNotice(alert: Alert, baseUrl: string): Notice {
+export function alertNotice(alert: Alert, baseUrl: string, zone: Zone = EASTERN): Notice {
   const name = capitalise(listingByTicker(alert.ticker)?.spoken ?? alert.ticker);
-  const at = alert.firedAt ? `${clockTime(alert.firedAt)} ET` : "just now";
+  const at = alert.firedAt ? `${clockTime(alert.firedAt, zone)} ${short(zone)}` : "just now";
   const url = `${baseUrl}/app/#${alert.ticker}`;
   if (isPriceAlert(alert)) {
     const dir = alert.above ? "above" : "below";
@@ -34,12 +38,12 @@ export function alertNotice(alert: Alert, baseUrl: string): Notice {
   };
 }
 
-export function triggeredTradeNotice(intent: TradeIntent, baseUrl: string): Notice {
+export function triggeredTradeNotice(intent: TradeIntent, baseUrl: string, zone: Zone = EASTERN): Notice {
   const name = capitalise(listingByTicker(intent.ticker)?.spoken ?? intent.ticker);
   const c = intent.condition!;
   return {
     title: `${name} ${c.above ? "rose above" : "dropped below"} ${usd(c.price)}`,
-    body: `Your ${usd(intent.usd)} ${intent.side} is ready to sign. Code ${intent.code}, until ${clockTime(intent.expiresAt)} ET.`,
+    body: `Your ${usd(intent.usd)} ${intent.side} is ready to sign. Code ${intent.code}, until ${clockTime(intent.expiresAt, zone)} ${short(zone)}.`,
     url: `${baseUrl}/go?code=${intent.code}`,
     tag: `trade-${intent.id}`,
   };

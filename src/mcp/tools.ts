@@ -29,6 +29,7 @@ import { alertNews, isPriceAlert, listAlerts, removeAlert, upsertAlert, MAX_ALER
 import { overnightRange, readTape, type OvernightRange } from "../market/tape.js";
 import { armIntent, createIntent, getIntent, intentByCode, maxTradeUsd, recentlyTriggered, saveIntent, type TradeIntent } from "../chain/trade.js";
 import { listSubscriptions } from "../notify/push.js";
+import { EASTERN, getZone, resolveZone, setZone, zoneName, type Zone } from "../market/zones.js";
 
 export interface Caller {
   sub: string;
@@ -75,7 +76,7 @@ export const EXPLAIN = {
   trading_safety:
     "I can prepare a trade, but I can never make one. I read you a six-digit code; you open the confirm page, check a fresh quote, and sign it in your own wallet. Afterhours holds no keys, so nothing moves without your signature.",
   what_you_can_do:
-    "Ask me what happened overnight, how a stock like Tesla is doing, or how your portfolio did since the close. I can watch a stock for a percent move or a price and tell you when it went off, and I can prepare a trade for you to sign in your wallet.",
+    "Ask me what happened overnight, how a stock like Tesla is doing, or how your portfolio did since the close. I can watch a stock for a percent move or a price and tell you when it went off, and I can prepare a trade for you to sign in your wallet, now or when a price is reached. Tell me where you are, and I'll give you times in your own time zone.",
 } as const;
 
 /** "Tesla's", "the S&P 500 fund's". */
@@ -132,7 +133,7 @@ function shortMove(r: GapReading): string {
  * current number doesn't: a run-up that faded, or a dip that recovered.
  * Needs at least half an hour of samples to say anything.
  */
-export function rangeSentence(r: GapReading, range: OvernightRange | null, now: number): string | null {
+export function rangeSentence(r: GapReading, range: OvernightRange | null, now: number, zone: Zone = EASTERN): string | null {
   if (!range || range.samples < 6 || r.gapBps === null) return null;
   const current = r.gapBps;
   const up = current >= 0;
@@ -142,7 +143,7 @@ export function rangeSentence(r: GapReading, range: OvernightRange | null, now: 
   const overnight = r.referenceLabel === "yesterday's close" || r.referenceLabel === "today's close";
   const lead = overnight ? "Overnight it" : `Since ${r.referenceLabel} it`;
   if (Math.abs(extreme.bps - current) >= 40) {
-    return `${lead} ${up ? "peaked at" : "fell as far as"} ${move(extreme.bps)} ${aroundTime(extreme.at, now)}, and has ${up ? "faded" : "recovered"} since.`;
+    return `${lead} ${up ? "peaked at" : "fell as far as"} ${move(extreme.bps)} ${aroundTime(extreme.at, now, zone)}, and has ${up ? "faded" : "recovered"} since.`;
   }
   return `That's close to its ${up ? "high" : "low"} ${overnight ? "of the night" : `since ${r.referenceLabel}`}.`;
 }
@@ -222,7 +223,7 @@ const intentShape = {
 };
 
 /** "Your $50 buy of Tesla …": shared by trade_status, cancel_trade and the brief. */
-function tradeSentence(intent: TradeIntent, now: number): string {
+function tradeSentence(intent: TradeIntent, now: number, zone: Zone = EASTERN): string {
   const name = listingByTicker(intent.ticker)?.spoken ?? intent.ticker;
   const what = `Your ${usd(intent.usd)} ${intent.side} of ${name}`;
   const c = intent.condition;
@@ -230,7 +231,7 @@ function tradeSentence(intent: TradeIntent, now: number): string {
   const text: Record<TradeIntent["status"], string> = {
     armed: `${what} is set for when its token ${line}.`,
     awaiting_signature: c?.triggeredAt
-      ? `${what} triggered ${whenSpoken(c.triggeredAt, now)}, when the token ${c.above ? "rose above" : "dropped below"} ${usd(c.price)}. It's waiting for your signature: the code is ${spokenCode(intent.code)}.`
+      ? `${what} triggered ${whenSpoken(c.triggeredAt, now, zone)}, when the token ${c.above ? "rose above" : "dropped below"} ${usd(c.price)}. It's waiting for your signature: the code is ${spokenCode(intent.code)}.`
       : `${what} is waiting for your signature. The code is ${spokenCode(intent.code)}.`,
     submitted: `${what} was signed and sent. It's waiting for Solana to confirm it.`,
     confirmed: `${what} is confirmed on Solana.`,
@@ -280,6 +281,30 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
   };
 
   server.registerTool(
+    "set_timezone",
+    {
+      title: "Set my time zone",
+      description:
+        "Remembers where the user is, so every time Afterhours says (market open, when an alert went off, when a trade triggered) and every notification uses their local time instead of New York's. Use for 'I'm in London', 'my time zone is Lagos', 'use Tokyo time', 'use Eastern time'.",
+      inputSchema: { place: z.string().min(2).describe("City, country or IANA zone as the user said it, e.g. 'London', 'Nigeria', 'Asia/Tokyo'.") },
+      outputSchema: { timeZone: z.string(), label: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ place }) =>
+      guard(async () => {
+        const zone = resolveZone(place);
+        if (!zone) return fail(`I don't know the time zone for "${place}". Try a nearby big city, like London, Lagos, Mumbai or Tokyo.`);
+        await setZone(svc.store, caller.sub, zone);
+        const now = new Date(svc.now());
+        const opens = nextOpenPhrase(now, zone);
+        return say(
+          `Got it, I'll use ${zoneName(zone)}. ${getMarketSession(now).isRegularHours ? "The US market is open now." : opens ? `The US market next opens ${opens}.` : ""}`.trim(),
+          { timeZone: zone.tz, label: zone.label },
+        );
+      }),
+  );
+
+  server.registerTool(
     "explain",
     {
       title: "Explain tokenized stocks and how Afterhours works",
@@ -315,13 +340,14 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
     async () => {
       const now = new Date(svc.now());
       const s = getMarketSession(now);
+      const zone = await getZone(svc.store, caller.sub);
       const tail = s.isRegularHours ? "" : " Tokenized stocks are still trading.";
-      return say(`${sessionSentence(s, now)}${tail}`, {
+      return say(`${sessionSentence(s, now, zone)}${tail}`, {
         phase: s.phase,
         isOpen: s.isRegularHours,
         easternTime: s.etTime,
         holiday: s.phase === "holiday" ? s.label : null,
-        nextOpen: s.isRegularHours ? null : nextOpenPhrase(now),
+        nextOpen: s.isRegularHours ? null : nextOpenPhrase(now, zone),
       });
     },
   );
@@ -369,7 +395,8 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const news = alertNews(await listAlerts(svc.store, caller.sub), readings, now);
 
         // Alerts lead: they are the names this person said they care about.
-        const parts = [sampleNote(board) + sessionSentence(session, new Date(now))];
+        const zone = await getZone(svc.store, caller.sub);
+        const parts = [sampleNote(board) + sessionSentence(session, new Date(now), zone)];
         for (const n of news) {
           const name = capitalise(n.reading.spoken);
           if (isPriceAlert(n.alert)) {
@@ -377,20 +404,20 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
             const nowAt = `it's at ${usd(n.reading.tokenPrice)} now`;
             parts.push(
               n.firedAt
-                ? `${capitalise(possessiveName(n.reading.spoken))} token went ${dir} ${usd(n.alert.price!)} ${whenSpoken(n.firedAt, now)}; ${nowAt}.`
+                ? `${capitalise(possessiveName(n.reading.spoken))} token went ${dir} ${usd(n.alert.price!)} ${whenSpoken(n.firedAt, now, zone)}; ${nowAt}.`
                 : `${capitalise(possessiveName(n.reading.spoken))} token is ${dir} your ${usd(n.alert.price!)} line, at ${usd(n.reading.tokenPrice)}.`,
             );
             continue;
           }
           if (n.firedAt) {
             const still = Math.abs(n.reading.gapBps! - n.firedGapBps) < 15 ? "" : `; it's ${move(n.reading.gapBps!)} now`;
-            parts.push(`Your ${n.reading.spoken} alert went off ${whenSpoken(n.firedAt, now)}, when it was ${move(n.firedGapBps)}${still}.`);
+            parts.push(`Your ${n.reading.spoken} alert went off ${whenSpoken(n.firedAt, now, zone)}, when it was ${move(n.firedGapBps)}${still}.`);
           } else {
             parts.push(`Your ${n.reading.spoken} alert at ${pct(n.alert.thresholdBps)} has triggered: ${name} is ${move(n.reading.gapBps!)}.`);
           }
         }
         // A conditional trade that triggered overnight is the most urgent thing to say.
-        for (const t of await recentlyTriggered(svc.store, caller.sub, now)) parts.push(tradeSentence(t, now));
+        for (const t of await recentlyTriggered(svc.store, caller.sub, now)) parts.push(tradeSentence(t, now, zone));
 
         // Your own positions come before the market's: it's your money.
         const wallet = caller.wallet || svc.sample ? await within(svc.holdings.read(caller.wallet ?? ""), BRIEF_WALLET_BUDGET_MS) : null;
@@ -456,12 +483,13 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const { board, now, readings } = await allReadings();
         const r = readings.find((x) => x.ticker === listing.ticker);
         if (!r) return fail(`I don't have a price for ${listing.spoken} right now.`);
-        const verdict = verdictSentence(r, new Date(now));
+        const zone = await getZone(svc.store, caller.sub);
+        const verdict = verdictSentence(r, new Date(now), zone);
         const range =
           r.kind === "overnight_move" || r.kind === "in_line"
             ? overnightRange(await readTape(svc), r.ticker, r.closedAt ?? now - 16 * 3600_000)
             : null;
-        return say([sampleNote(board) + gapSentence(r), rangeSentence(r, range, now), verdict].filter(Boolean).join(" "), {
+        return say([sampleNote(board) + gapSentence(r), rangeSentence(r, range, now, zone), verdict].filter(Boolean).join(" "), {
           dataSource: board.source,
           ...readingOut(r),
           verdict,
@@ -740,7 +768,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           intent = id ? await getIntent(svc.store, id, svc.now()) : null;
         }
         if (!intent || intent.sub !== caller.sub) return fail("I don't see a recent trade for you.");
-        return say(tradeSentence(intent, svc.now()), intentOut(intent, svc.baseUrl));
+        return say(tradeSentence(intent, svc.now(), await getZone(svc.store, caller.sub)), intentOut(intent, svc.baseUrl));
       }),
   );
 

@@ -24,6 +24,7 @@ import { evaluateAll } from "./alerts.js";
 import { notify } from "../notify/push.js";
 import { alertNotice, triggeredTradeNotice } from "../notify/notices.js";
 import { triggerArmed } from "../chain/trade.js";
+import { getZone } from "./zones.js";
 
 export interface TapePoint {
   /** Unix ms. */
@@ -59,12 +60,14 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   const firedAlerts = await evaluateAll(svc.store, readings, now);
   const fired = firedAlerts.length;
   // Tell people now, not at their next briefing. Push failures never stop the tape.
-  await Promise.all(firedAlerts.map(({ sub, alert }) => notify(svc, sub, alertNotice(alert, svc.baseUrl)).catch(() => 0)));
+  const send = async (sub: string, make: (zone: Awaited<ReturnType<typeof getZone>>) => Parameters<typeof notify>[2]) =>
+    notify(svc, sub, make(await getZone(svc.store, sub))).catch(() => 0);
+  await Promise.all(firedAlerts.map(({ sub, alert }) => send(sub, (zone) => alertNotice(alert, svc.baseUrl, zone))));
 
   // Conditional trades whose price was crossed become signable now.
   const prices = new Map(readings.map((r) => [r.ticker, r.tokenPrice]));
   const triggered = await triggerArmed(svc.store, prices, now);
-  await Promise.all(triggered.map((t) => notify(svc, t.sub, triggeredTradeNotice(t, svc.baseUrl)).catch(() => 0)));
+  await Promise.all(triggered.map((t) => send(t.sub, (zone) => triggeredTradeNotice(t, svc.baseUrl, zone))));
 
   const tape = await readTape(svc);
   const last = tape.at(-1);

@@ -92,7 +92,8 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;"
 const pct=n=>(n>0?"+":"")+Number(n).toFixed(2)+"%";
 const usd=n=>"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const cls=n=>n>=0?"up":"down";
-const et=iso=>new Date(iso).toLocaleString("en-US",{timeZone:"America/New_York",weekday:"short",hour:"numeric",minute:"2-digit"})+" ET";
+// The device's own clock: cards are seen where the person is.
+const et=iso=>new Date(iso).toLocaleString("en-US",{weekday:"short",hour:"numeric",minute:"2-digit"});
 function bars(rows){const max=Math.max(1,...rows.map(r=>Math.abs(r.v)));return rows.map(r=>"<div class=row><span>"+esc(r.k)+"</span><span class=track><span class='fill "+cls(r.v)+"' style='left:0;width:"+(Math.abs(r.v)/max*100).toFixed(1)+"%'></span></span><span class='v "+cls(r.v)+"'>"+esc(r.t)+"</span></div>").join("")}
 `;
 

@@ -9,7 +9,8 @@
  */
 
 import type { GapReading } from "./gap.js";
-import { minutesToNextOpen, toEasternParts, type MarketSession } from "./session.js";
+import { minutesToNextOpen, type MarketSession } from "./session.js";
+import { EASTERN, zoneName, zoneParts, type Zone } from "./zones.js";
 
 export function pct(bps: number): string {
   const p = Math.abs(bps) / 100;
@@ -35,20 +36,23 @@ export function capitalise(s: string): string {
 
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-/** "Monday at 9:30 in the morning Eastern", or null when not knowable. */
-export function nextOpenPhrase(now: Date): string | null {
+/** "today", "yesterday", "tomorrow" or a weekday, for an instant, in the listener's zone. */
+function dayWord(at: number, now: number, zone: Zone): string {
+  const day = zoneParts(new Date(at), zone.tz);
+  const today = zoneParts(new Date(now), zone.tz);
+  if (day.date === today.date) return "today";
+  const days = Math.round((Date.parse(day.date) - Date.parse(today.date)) / 86_400_000);
+  if (days === 1) return "tomorrow";
+  if (days === -1) return "yesterday";
+  return WEEKDAY[day.weekday];
+}
+
+/** "Monday at 9:30 a.m. Eastern", "tomorrow at 2:30 p.m. Lagos time"; null when not knowable. */
+export function nextOpenPhrase(now: Date, zone: Zone = EASTERN): string | null {
   const minutes = minutesToNextOpen(now);
   if (minutes === null) return null;
-  const open = new Date(now.getTime() + minutes * 60_000);
-  const openParts = toEasternParts(open);
-  const today = toEasternParts(now);
-  const day =
-    openParts.date === today.date
-      ? "today"
-      : minutes < 36 * 60 && openParts.weekday === (today.weekday + 1) % 7
-        ? "tomorrow"
-        : WEEKDAY[openParts.weekday];
-  return `${day} at 9:30 a.m. Eastern`;
+  const open = now.getTime() + minutes * 60_000;
+  return `${dayWord(open, now.getTime(), zone)} at ${clockTime(open, zone)} ${zoneName(zone)}`;
 }
 
 /** "45 minutes", "1 hour and 10 minutes", "2 hours". */
@@ -60,8 +64,8 @@ export function duration(minutes: number): string {
   return m === 0 ? hours : `${hours} and ${m} minute${m === 1 ? "" : "s"}`;
 }
 
-export function sessionSentence(session: MarketSession, now: Date): string {
-  const next = nextOpenPhrase(now);
+export function sessionSentence(session: MarketSession, now: Date, zone: Zone = EASTERN): string {
+  const next = nextOpenPhrase(now, zone);
   // Within three hours of the bell, a countdown is what people want to hear.
   const toOpen = minutesToNextOpen(now);
   const opens = toOpen !== null && toOpen <= 180 ? ` It opens in ${duration(toOpen)}.` : next ? ` It opens ${next}.` : "";
@@ -100,9 +104,9 @@ export function gapSentence(r: GapReading): string {
 }
 
 /** What the gap is, as a decision: a hedge, a bet, or nothing. */
-export function verdictSentence(r: GapReading, now: Date): string | null {
+export function verdictSentence(r: GapReading, now: Date, zone: Zone = EASTERN): string | null {
   if (r.kind === "overnight_move") {
-    const next = nextOpenPhrase(now);
+    const next = nextOpenPhrase(now, zone);
     return `With the share market shut, that's a bet on ${next ? `the open ${next.split(" at ")[0]}` : "the next open"}, not a hedge.`;
   }
   if (r.kind === "live_gap") {
@@ -111,22 +115,23 @@ export function verdictSentence(r: GapReading, now: Date): string | null {
   return null;
 }
 
-const CLOCK = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true });
+const clocks = new Map<string, Intl.DateTimeFormat>();
 
-/** "2:14 a.m." in New York. */
-export function clockTime(at: number): string {
-  return CLOCK.format(new Date(at)).replace("AM", "a.m.").replace("PM", "p.m.");
+/** "2:14 a.m." in the listener's zone (New York by default). */
+export function clockTime(at: number, zone: Zone = EASTERN): string {
+  let f = clocks.get(zone.tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone: zone.tz, hour: "numeric", minute: "2-digit", hour12: true });
+    clocks.set(zone.tz, f);
+  }
+  return f.format(new Date(at)).replace("AM", "a.m.").replace("PM", "p.m.");
 }
 
-/** "at 2:14 a.m. Eastern", "yesterday at 9:05 p.m. Eastern", "Saturday at …". */
-export function whenSpoken(at: number, now: number): string {
-  const day = toEasternParts(new Date(at));
-  const today = toEasternParts(new Date(now));
-  const time = `${clockTime(at)} Eastern`;
-  if (day.date === today.date) return `at ${time}`;
-  const days = Math.round((Date.parse(today.date) - Date.parse(day.date)) / 86_400_000);
-  if (days === 1) return `yesterday at ${time}`;
-  return `${WEEKDAY[day.weekday]} at ${time}`;
+/** "at 2:14 a.m. Eastern", "yesterday at 9:05 p.m. London time", "Saturday at …". */
+export function whenSpoken(at: number, now: number, zone: Zone = EASTERN): string {
+  const time = `${clockTime(at, zone)} ${zoneName(zone)}`;
+  const day = dayWord(at, now, zone);
+  return day === "today" ? `at ${time}` : `${day} at ${time}`;
 }
 
 /**
@@ -134,14 +139,12 @@ export function whenSpoken(at: number, now: number): string {
  * the day when it wasn't today: "yesterday around 11 p.m.", "on Saturday
  * around 10:30 a.m.".
  */
-export function aroundTime(at: number, now: number = at): string {
+export function aroundTime(at: number, now: number = at, zone: Zone = EASTERN): string {
   const rounded = Math.round(at / 1_800_000) * 1_800_000;
-  const clock = `around ${clockTime(rounded).replace(":00", "")}`;
-  const day = toEasternParts(new Date(rounded));
-  const today = toEasternParts(new Date(now));
-  if (day.date === today.date) return clock;
-  const days = Math.round((Date.parse(today.date) - Date.parse(day.date)) / 86_400_000);
-  return days === 1 ? `yesterday ${clock}` : `on ${WEEKDAY[day.weekday]} ${clock}`;
+  const clock = `around ${clockTime(rounded, zone).replace(":00", "")}`;
+  const day = dayWord(rounded, now, zone);
+  if (day === "today") return clock;
+  return day === "yesterday" ? `yesterday ${clock}` : `on ${day} ${clock}`;
 }
 
 /** Signed move for speech: "up 2.1 percent" / "down 0.4 percent". */

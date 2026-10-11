@@ -167,6 +167,8 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const named = /\b(?:if|when)\s+(.+?)\s+(?:moves|goes|drifts|jumps|drops|is|gets|changes)/.exec(t)?.[1] ?? t;
     return { tool: "set_alert", args: { stock: stockIn(named), percent: Number(percent ?? 2) } };
   }
+  const place = /^(?:i'?m|i am|i live|we're|we are)\s+(?:in|at)\s+(.+)$|\b(?:time ?zone|use)\s+(?:is\s+|to\s+)?(.+?)(?:\s+time)?$/.exec(t.replace(/[.!?]+$/, ""));
+  if (place && (place[1] || /\btime ?zone\b|\btime$/.test(t.replace(/[.!?]+$/, "")))) return { tool: "set_timezone", args: { place: (place[1] ?? place[2]).trim() } };
   const topic = explainTopic(t);
   if (topic) return { tool: "explain", args: { topic } };
   if (/\b(portfolio|my (stocks|holdings|positions|wallet)|what do i own|how much am i (up|down))\b/.test(t)) return { tool: "my_portfolio", args: {} };
