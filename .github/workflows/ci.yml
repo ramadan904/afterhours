@@ -40,3 +40,14 @@ jobs:
       - run: pip install cfn-lint
       - run: cfn-lint infra/aws.yaml
       - run: bash -n scripts/deploy-aws.sh
+  # Builds the production image from a clean context, as App Runner and Render
+  # will, and checks the container serves.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t afterhours .
+      - run: |
+          docker run -d --name ah -p 8080:8080 -e AUTH_SECRET="$(openssl rand -base64 48)" -e AFTERHOURS_DATA=sample afterhours
+          for i in $(seq 1 20); do curl -sf localhost:8080/health && exit 0; sleep 1; done
+          docker logs ah; exit 1
