@@ -150,7 +150,7 @@ function visual(step,reply){const d=step&&step.structured;const v=$("visual");if
  default:v.innerHTML="<div class=hello>"+escH(reply)+"</div>"}}
 function trace(turn){const t=$("trace");$("planner").textContent="planner: "+turn.planner+(turn.fallbackReason?" (fallback)":"");
  if(!turn.steps.length){t.innerHTML="<p class='small muted'>No tool call for that.</p>";return}
- t.innerHTML=turn.steps.map(s=>"<div class=step><header><span class=name>"+escH(s.tool)+"</span><span class='ms "+(s.ms<500?"ok":"slow")+"'>"+s.ms+" ms</span></header><div class=args>"+escH(JSON.stringify(s.args))+"</div><pre>"+escH(s.text)+"</pre>"+(s.structured?"<details><summary class='small muted'>structuredContent</summary><pre>"+escH(JSON.stringify(s.structured,null,2))+"</pre></details>":"")+"</div>").join("")}
+ t.innerHTML=turn.steps.map(s=>"<div class=step><header><span class=name>"+escH(s.tool)+"</span><span class='ms "+(s.ms<500?"ok":"slow")+"'>"+s.ms+" ms</span></header><div class=args>"+escH(JSON.stringify(s.args))+(s.ui?" <span class=pill title='MCP Apps card rendered on the screen'>"+escH(s.ui.uri)+"</span>":"")+"</div><pre>"+escH(s.text)+"</pre>"+(s.structured?"<details><summary class='small muted'>structuredContent</summary><pre>"+escH(JSON.stringify(s.structured,null,2))+"</pre></details>":"")+"</div>").join("")}
 function say(text){if(!$("speak").checked||!("speechSynthesis" in window)){light("");return}
  speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.rate=1.02;const en=speechSynthesis.getVoices().find(v=>/en-US/.test(v.lang)&&/Samantha|Google US|Joanna|Aria|Jenny/.test(v.name));if(en)u.voice=en;
  u.onstart=()=>light("speaking");u.onend=()=>light("");speechSynthesis.speak(u)}

@@ -89,7 +89,13 @@ Tests (100, no network needed): `npm test`. They cover the OAuth flow, every too
 
 ## Deploy
 
-**Docker / AWS App Runner (recommended for latency).** A long-running process keeps the price cache warm.
+**Fastest: Render.** [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ramadan904/afterhours)
+The blueprint (`render.yaml`) builds the Docker image, generates `AUTH_SECRET`, runs in Virginia (close to Alexa), and
+uses Render's HTTPS URL as the public URL. It's a long-running service, so the overnight tape samples on its own
+timer. (Render's free plan sleeps when idle, which breaks the 500 ms budget on the first call and pauses the tape; use
+Starter or above for judging.)
+
+**Docker / AWS App Runner.** A long-running process keeps the price cache warm.
 
 ```bash
 docker build -t afterhours .

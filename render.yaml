@@ -1,0 +1,32 @@
+# One-click deploy: https://render.com/deploy?repo=https://github.com/ramadan904/afterhours
+# A long-running web service, so the overnight tape samples on its own timer.
+services:
+  - type: web
+    name: afterhours
+    runtime: docker
+    plan: starter
+    region: virginia # close to Alexa's us-east endpoints, for the 500ms budget
+    healthCheckPath: /health
+    envVars:
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      # PUBLIC_URL defaults to Render's own URL (RENDER_EXTERNAL_URL).
+      # Set it if you add a custom domain.
+      - key: PUBLIC_URL
+        sync: false
+      - key: SOLANA_RPC_URL
+        sync: false
+      - key: ALEXA_CLIENT_ID
+        sync: false
+      - key: ALEXA_CLIENT_SECRET
+        sync: false
+      - key: ALEXA_REDIRECT_URIS
+        sync: false
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false

@@ -79,3 +79,15 @@ describe("deployment guards", () => {
     expect(servicesFromEnv({ PUBLIC_URL: "https://a.example", AUTH_SECRET: "x".repeat(40) }).authRequired).toBe(true);
   });
 });
+
+describe("public URL", () => {
+  it("comes from PUBLIC_URL, else the platform, else localhost", () => {
+    const secret = { AUTH_SECRET: "x".repeat(40) };
+    expect(servicesFromEnv({ ...secret, PUBLIC_URL: "https://mine.example/" }).baseUrl).toBe("https://mine.example");
+    expect(servicesFromEnv({ ...secret, RENDER_EXTERNAL_URL: "https://afterhours.onrender.com" }).baseUrl).toBe("https://afterhours.onrender.com");
+    expect(servicesFromEnv({ ...secret, VERCEL_PROJECT_PRODUCTION_URL: "afterhours.vercel.app" }).baseUrl).toBe("https://afterhours.vercel.app");
+    expect(servicesFromEnv({}).baseUrl).toBe("http://localhost:8787");
+    // A platform URL is HTTPS, so the deployment guard applies to it too.
+    expect(() => servicesFromEnv({ RENDER_EXTERNAL_URL: "https://afterhours.onrender.com" })).toThrow(/AUTH_SECRET/);
+  });
+});

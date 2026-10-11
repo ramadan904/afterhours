@@ -28,7 +28,10 @@ export interface Services {
 export function servicesFromEnv(env: NodeJS.ProcessEnv = process.env): Services {
   const sample = env.AFTERHOURS_DATA === "sample";
   const port = env.PORT ?? "8787";
-  const baseUrl = (env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/$/, "");
+  // The public origin: set explicitly, or taken from the platform.
+  const platformUrl =
+    env.RENDER_EXTERNAL_URL ?? (env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined);
+  const baseUrl = (env.PUBLIC_URL || platformUrl || `http://localhost:${port}`).replace(/\/$/, "");
   const rpcUrl = env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
   const jupiter = env.JUPITER_ENDPOINT ?? "https://lite-api.jup.ag";
 
