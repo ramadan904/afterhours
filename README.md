@@ -32,7 +32,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 9 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
 | **Account linking** | OAuth 2.1 authorization code + **PKCE (S256)**. RFC 9728 protected-resource metadata, RFC 8414 server metadata, `resource` bound to the MCP URI, rotating refresh tokens, and a bare `401` for unauthenticated MCP calls, all as Alexa+'s MCP onboarding asks. You link a **Solana wallet by signing a message** (free, can't move funds), or link a watch-only address. |
 | **Live data** | Token and share prices from Jupiter (one keyless call returns both legs), balances from Solana mainnet RPC. Prices are served from a stale-while-revalidate cache, so tool calls stay well inside Alexa+'s **500 ms** budget. |
-| **Trade confirm page** | `/go`: enter the code, get a fresh Jupiter quote, sign in Phantom, Solflare or Backpack. Status flows back to Alexa ("did my trade go through?"). |
+| **Trade confirm page** | `/go`: enter the code, get a fresh Jupiter quote, sign in any Wallet Standard wallet (Phantom, Solflare, Backpack, and others). Afterhours only reports a trade as confirmed once Solana shows it succeeded **and the linked wallet paid for it**. Status flows back to Alexa ("did my trade go through?"). |
 | **Alexa+ simulator** | `/sim/`: Alexa+'s MCP client is partner-gated, so this page plays its part. It runs the real OAuth flow, then voice in, voice out, with a live trace of every MCP call and its latency. The planner is **Claude on Amazon Bedrock** when AWS credentials are present, otherwise a deterministic intent matcher. |
 | **Conformance check** | `npm run conformance -- <url>` checks a deployment against the Alexa+ requirements and measures p50/p95 latency over the network. |
 
@@ -62,6 +62,13 @@ AFTERHOURS_DATA=sample npm run dev     # offline: sample board + sample portfoli
 # open http://localhost:8787/sim/ → Link account → "Use the sample portfolio" → ask away
 ```
 
+Live data path with no network (fake Jupiter + Solana RPC, any wallet "holds" a small portfolio):
+
+```bash
+npx tsx scripts/fake-upstreams.ts 9900 &
+JUPITER_ENDPOINT=http://localhost:9900 SOLANA_RPC_URL=http://localhost:9900 npm run dev
+```
+
 With live mainnet data:
 
 ```bash
@@ -69,7 +76,7 @@ cp .env.example .env    # set AUTH_SECRET at minimum
 npm run dev
 ```
 
-Tests (60, no network needed): `npm test`. Conformance against any deployment: `npm run conformance -- https://your-host`.
+Tests (69, no network needed): `npm test`. They cover the OAuth flow, every tool, the live Jupiter/Solana path against faithful fakes, and the on-chain payer check. Conformance against any deployment: `npm run conformance -- https://your-host`.
 
 ### Connect it to an MCP client
 
@@ -110,7 +117,9 @@ codes, alerts and trade proposals are shared across function instances.
 - `src/auth/`: OAuth 2.1 server, signed tokens, wallet signature verification
 - `src/chain/`: Solana balances, trade proposals, Jupiter swap client
 - `src/http/`: router, pages (link, confirm, landing), simulator, trade API
-- `src/sim/planner.ts`: Bedrock (Claude) and scripted planners, MCP client
+- `src/sim/planner.ts`: Bedrock (Claude) and scripted planners (with follow-ups like "what about Nvidia?"), MCP client
+
+Recording the demo? See [DEMO.md](DEMO.md) for a timed script.
 
 ## Honest limits
 

@@ -47,8 +47,9 @@ amount, or a TV talking in the background, can't move money. **Voice proposes, w
 - **Market-aware language:** an NYSE calendar (holidays, half days, DST) labels every reading with its session, and
   names the reference the way a person would ("since Friday's close", "against the live share price").
 - **Trades:** proposals live 15 minutes, are capped at $500 by voice, and are checked against holdings for sells. The
-  confirm page builds a Jupiter swap for the *linked* wallet only, and the user's wallet signs and sends it. Status is
-  read back from Solana.
+  confirm page builds a Jupiter swap for the *linked* wallet only, and the user's wallet signs and sends it through the
+  Wallet Standard (no Solana library or CDN script on the page). A trade is reported confirmed only after Solana shows
+  it succeeded *and* the linked wallet paid for it, so a reported signature alone proves nothing.
 - **Alexa+ simulator:** Alexa+'s MCP client is partner-gated, so `/sim/` stands in for it. It runs the real OAuth
   flow, sends speech (Web Speech API) to a planner, calls the MCP endpoint with the linked token, and speaks the
   reply, showing every tool call with its latency. The planner is **Claude on Amazon Bedrock** (tools taken from the
