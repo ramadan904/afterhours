@@ -1,0 +1,56 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+  # Runs the server against live mainnet data (Jupiter + Solana RPC) and the
+  # Alexa+ conformance checks, so every push proves the live path, not just
+  # the sample one.
+  live:
+    runs-on: ubuntu-latest
+    needs: test
+    env:
+      AUTH_SECRET: ci-only-secret-0123456789abcdef0123456789
+      PUBLIC_URL: http://localhost:8787
+      PORT: "8787"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci && npm run build
+      - run: node dist/src/node.js & sleep 4
+      - run: curl -sf localhost:8787/health | tee health.json
+      - run: npx tsx scripts/conformance.ts http://localhost:8787
+      # Public history sources are unofficial; show what they return, don't fail on them.
+      - run: npx tsx scripts/track-record.ts TSLA NVDA COIN
+        continue-on-error: true
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+      - run: pip install cfn-lint
+      - run: cfn-lint infra/aws.yaml
+      - run: bash -n scripts/deploy-aws.sh
+  # Builds the production image from a clean context, as App Runner and Render
+  # will, and checks the container serves.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t afterhours .
+      - run: |
+          docker run -d --name ah -p 8080:8080 -e AUTH_SECRET="$(openssl rand -base64 48)" -e AFTERHOURS_DATA=sample afterhours
+          for i in $(seq 1 20); do curl -sf localhost:8080/health && exit 0; sleep 1; done
+          docker logs ah; exit 1

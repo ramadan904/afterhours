@@ -1,0 +1,224 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Afterhours on AWS: an Alexa+ MCP server on App Runner, state in DynamoDB,
+  secrets in Secrets Manager, the overnight tape sampled by EventBridge, and
+  Claude on Amazon Bedrock for the simulator's planner.
+  Deploy with scripts/deploy-aws.sh (builds and pushes the image, then runs this).
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: ECR image URI, e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com/afterhours:abc123
+  PublicUrl:
+    Type: String
+    Default: ""
+    Description: >
+      HTTPS origin the server is reached at. Leave empty on the first deploy;
+      deploy-aws.sh fills it with the App Runner URL and redeploys. It's also
+      what turns on the EventBridge schedule, which needs a URL to call.
+  BedrockModel:
+    Type: String
+    Default: anthropic.claude-opus-5-5
+    Description: Claude model ID on Bedrock for the simulator's planner (enable model access first).
+  AlexaClientId:
+    Type: String
+    Default: ""
+    Description: Client ID from the Alexa+ add-on's account linking settings (optional).
+  AlexaRedirectUris:
+    Type: String
+    Default: ""
+    Description: Comma-separated redirect URIs Alexa shows for account linking (optional).
+
+Conditions:
+  HasPublicUrl: !Not [!Equals [!Ref PublicUrl, ""]]
+
+Resources:
+  # Key/value state: OAuth codes, refresh tokens, alerts, the tape, trade proposals.
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: k
+          AttributeType: S
+      KeySchema:
+        - AttributeName: k
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # Signs access tokens. Generated here, never typed or committed anywhere.
+  AuthSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Afterhours access-token signing key
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  # The client secret Alexa uses for account linking. Generated here; copy it
+  # into the Alexa console (deploy-aws.sh prints the command).
+  AlexaClientSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Afterhours OAuth client secret for Alexa+ account linking
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  # Authenticates EventBridge's calls to /api/cron/tape.
+  CronSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Afterhours tape recorder trigger secret
+      GenerateSecretString:
+        PasswordLength: 40
+        ExcludePunctuation: true
+
+  # What the running server may do: its table, its secrets, and Claude on Bedrock.
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: tasks.apprunner.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: afterhours-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem]
+                Resource: !GetAtt Table.Arn
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: [!Ref AuthSecret, !Ref CronSecret, !Ref AlexaClientSecret]
+              # The planner uses the Anthropic Bedrock (Mantle) client, which
+              # signs requests for the bedrock-mantle service.
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock-mantle:*
+                Resource: "*"
+
+  # Lets App Runner pull the image from ECR.
+  AccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: build.apprunner.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess
+
+  Service:
+    Type: AWS::AppRunner::Service
+    Properties:
+      SourceConfiguration:
+        AutoDeploymentsEnabled: false
+        AuthenticationConfiguration:
+          AccessRoleArn: !GetAtt AccessRole.Arn
+        ImageRepository:
+          ImageRepositoryType: ECR
+          ImageIdentifier: !Ref ImageUri
+          ImageConfiguration:
+            Port: "8080"
+            RuntimeEnvironmentVariables:
+              - { Name: NODE_ENV, Value: production }
+              - { Name: PUBLIC_URL, Value: !Ref PublicUrl }
+              - { Name: DYNAMODB_TABLE, Value: !Ref Table }
+              - { Name: AWS_REGION, Value: !Ref AWS::Region }
+              - { Name: BEDROCK_MODEL, Value: !Ref BedrockModel }
+              - { Name: ALEXA_CLIENT_ID, Value: !Ref AlexaClientId }
+              - { Name: ALEXA_REDIRECT_URIS, Value: !Ref AlexaRedirectUris }
+            RuntimeEnvironmentSecrets:
+              - { Name: AUTH_SECRET, Value: !Ref AuthSecret }
+              - { Name: CRON_SECRET, Value: !Ref CronSecret }
+              - { Name: ALEXA_CLIENT_SECRET, Value: !Ref AlexaClientSecret }
+      InstanceConfiguration:
+        Cpu: 0.25 vCPU
+        Memory: 0.5 GB
+        InstanceRoleArn: !GetAtt InstanceRole.Arn
+      HealthCheckConfiguration:
+        Protocol: HTTP
+        Path: /health
+        Interval: 10
+        Timeout: 5
+
+  # The overnight tape: EventBridge calls /api/cron/tape every 5 minutes.
+  # (App Runner throttles CPU between requests, so an in-process timer can't
+  # be relied on there.)
+  TapeConnection:
+    Type: AWS::Events::Connection
+    Condition: HasPublicUrl
+    Properties:
+      AuthorizationType: API_KEY
+      AuthParameters:
+        ApiKeyAuthParameters:
+          ApiKeyName: Authorization
+          ApiKeyValue: !Sub "Bearer {{resolve:secretsmanager:${CronSecret}}}"
+
+  TapeDestination:
+    Type: AWS::Events::ApiDestination
+    Condition: HasPublicUrl
+    Properties:
+      ConnectionArn: !GetAtt TapeConnection.Arn
+      HttpMethod: POST
+      InvocationEndpoint: !Sub "${PublicUrl}/api/cron/tape"
+      InvocationRateLimitPerSecond: 1
+
+  TapeRole:
+    Type: AWS::IAM::Role
+    Condition: HasPublicUrl
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: invoke-tape
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:InvokeApiDestination
+                Resource: !GetAtt TapeDestination.Arn
+
+  TapeSchedule:
+    Type: AWS::Events::Rule
+    Condition: HasPublicUrl
+    Properties:
+      Description: Sample the board for the Afterhours overnight tape
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Id: tape
+          Arn: !GetAtt TapeDestination.Arn
+          RoleArn: !GetAtt TapeRole.Arn
+
+Outputs:
+  ServiceUrl:
+    Description: App Runner HTTPS host (no scheme)
+    Value: !GetAtt Service.ServiceUrl
+  McpEndpoint:
+    Description: The MCP endpoint to register with Alexa+
+    Value: !If [HasPublicUrl, !Sub "${PublicUrl}/mcp", !Sub "https://${Service.ServiceUrl}/mcp"]
+  Table:
+    Value: !Ref Table
+  AlexaClientSecretArn:
+    Description: Read with aws secretsmanager get-secret-value, then paste into the Alexa console
+    Value: !Ref AlexaClientSecret
