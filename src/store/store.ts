@@ -1,3 +1,5 @@
+import { DynamoStore } from "./dynamo.js";
+
 /**
  * The little state Afterhours keeps: one-time OAuth codes, refresh tokens,
  * alerts, and trade proposals waiting for a signature.
@@ -5,7 +7,8 @@
  * In memory by default, which is right for a single long-running process and
  * for tests. Set UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN (what
  * Vercel's Redis integration provides) when the server runs as serverless
- * functions, where each instance would otherwise have its own memory.
+ * functions, where each instance would otherwise have its own memory, or
+ * DYNAMODB_TABLE on AWS.
  */
 
 export interface Store {
@@ -109,7 +112,12 @@ export class UpstashStore implements Store {
   }
 }
 
+/**
+ * DynamoDB when `DYNAMODB_TABLE` is set (AWS deployments), Upstash when its
+ * REST credentials are (Vercel), memory otherwise.
+ */
 export function storeFromEnv(env: NodeJS.ProcessEnv = process.env): Store {
+  if (env.DYNAMODB_TABLE) return new DynamoStore(env.DYNAMODB_TABLE);
   const url = env.UPSTASH_REDIS_REST_URL ?? env.KV_REST_API_URL;
   const token = env.UPSTASH_REDIS_REST_TOKEN ?? env.KV_REST_API_TOKEN;
   return url && token ? new UpstashStore(url, token) : new MemoryStore();

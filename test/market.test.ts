@@ -93,6 +93,15 @@ describe("speech", () => {
     );
   });
 
+  it("counts down to the bell when it's close", () => {
+    const premarket = new Date("2026-10-13T12:45:00Z"); // Tue 08:45 ET
+    expect(sessionSentence(getMarketSession(premarket), premarket)).toBe("The US market is in pre-market trading. It opens in 45 minutes.");
+    const early = new Date("2026-10-13T11:20:00Z"); // 07:20 ET
+    expect(sessionSentence(getMarketSession(early), early)).toBe("The US market is in pre-market trading. It opens in 2 hours and 10 minutes.");
+    const night = new Date("2026-10-13T03:00:00Z"); // Mon 23:00 ET
+    expect(sessionSentence(getMarketSession(night), night)).toBe("The US stock market is closed. It opens tomorrow at 9:30 a.m. Eastern.");
+  });
+
   it("rounds for the ear", () => {
     expect(pct(214)).toBe("2.1 percent");
     expect(pct(-38)).toBe("0.4 percent");

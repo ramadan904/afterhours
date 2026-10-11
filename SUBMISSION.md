@@ -71,12 +71,19 @@ page, simulator, Bedrock planner, conformance script and tests were all written 
 
 ## AWS Builder
 
-- **Amazon Bedrock:** the simulator's planner runs Claude (`anthropic.claude-opus-5-5`) on Bedrock through the
-  Anthropic Bedrock SDK (`AnthropicBedrockMantle`), turning the MCP server's `tools/list` into Bedrock tool definitions
-  and running the tool loop (`src/sim/planner.ts`). It has a client-side refusal fallback and falls back to the scripted
-  planner if Bedrock is unavailable, so the demo never dies on stage.
-- **AWS App Runner:** documented container deploy in `us-east-1`; the instance role grants `bedrock:InvokeModel`.
-- **TODO before submitting:** run the simulator once with AWS credentials and record the Bedrock trace in the video.
+Afterhours deploys to AWS with one command (`scripts/deploy-aws.sh` → `infra/aws.yaml`, linted with cfn-lint in CI):
+
+- **AWS App Runner** runs the MCP server from an ECR image in `us-east-1`, close to Alexa.
+- **Amazon DynamoDB** holds the state (OAuth codes, refresh tokens, alerts, the overnight tape, trade proposals), with
+  TTL for one-time values. `src/store/dynamo.ts` passes the same contract tests as the in-memory and Redis stores.
+- **AWS Secrets Manager** generates the token-signing key and the cron secret; neither is ever typed or committed.
+- **Amazon EventBridge** (API destination on a 5-minute rule) samples the overnight tape and checks alerts while
+  everyone sleeps.
+- **Amazon Bedrock:** the simulator's planner runs Claude (`anthropic.claude-opus-5-5`) through the Anthropic Bedrock
+  SDK (`AnthropicBedrockMantle`). It turns the MCP server's `tools/list` into tool definitions and runs the tool loop
+  (`src/sim/planner.ts`). It has a client-side refusal fallback and drops back to the scripted planner if Bedrock is
+  unavailable. The loop is tested against a scripted stand-in for Claude (`test/planner.test.ts`).
+- **TODO before submitting:** deploy the stack, enable Bedrock model access, and capture a `planner: bedrock` trace.
 
 ## Open Source
 

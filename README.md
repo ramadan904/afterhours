@@ -79,14 +79,14 @@ cp .env.example .env    # set AUTH_SECRET at minimum
 npm run dev
 ```
 
-Tests (110, no network needed): `npm test`. They cover the OAuth flow, every tool, the MCP Apps cards, the overnight tape, the live Jupiter/Solana path against faithful fakes, the on-chain payer check, the security fixes, and a compile check of every inline script. Conformance against any deployment: `npm run conformance -- https://your-host`.
+Tests (123, no network needed): `npm test`. They cover the OAuth flow, every tool, the MCP Apps cards, the overnight tape, the live Jupiter/Solana path against faithful fakes, the on-chain payer check, the security fixes, and a compile check of every inline script. Conformance against any deployment: `npm run conformance -- https://your-host`.
 
 ### Connect it to an MCP client
 
 - **Endpoint:** `https://<host>/mcp` (Streamable HTTP)
 - **Auth:** OAuth discovery from `https://<host>/.well-known/oauth-protected-resource`
 - **MCP Inspector / quick testing:** `AUTH_SECRET=... PUBLIC_URL=https://<host> npm run token -- <wallet>` mints a 1-hour bearer token.
-- **Alexa+:** register the add-on's client ID, secret and redirect URLs as `ALEXA_CLIENT_ID`, `ALEXA_CLIENT_SECRET`, `ALEXA_REDIRECT_URIS`.
+- **Alexa+:** every value the console asks for is in [docs/ALEXA.md](docs/ALEXA.md).
 
 ## Deploy
 
@@ -96,15 +96,25 @@ uses Render's HTTPS URL as the public URL. It's a long-running service, so the o
 timer. (Render's free plan sleeps when idle, which breaks the 500 ms budget on the first call and pauses the tape; use
 Starter or above for judging.)
 
-**Docker / AWS App Runner.** A long-running process keeps the price cache warm.
+**AWS (App Runner + DynamoDB + EventBridge + Bedrock).** One command builds the image, pushes it to ECR and deploys
+`infra/aws.yaml`:
+
+```bash
+AWS_REGION=us-east-1 ./scripts/deploy-aws.sh
+```
+
+The stack runs the server on App Runner and keeps state in DynamoDB (TTL-enabled). Signing and cron secrets are
+generated in Secrets Manager. EventBridge samples the overnight tape every 5 minutes, because App Runner throttles CPU
+between requests, so an in-process timer isn't reliable there. The instance role grants Claude on Amazon Bedrock for
+the simulator's planner; enable model access for your chosen model in the Bedrock console first. Then follow
+[docs/ALEXA.md](docs/ALEXA.md) to connect Alexa+.
+
+**Docker anywhere.** A long-running process keeps the price cache warm.
 
 ```bash
 docker build -t afterhours .
 docker run -p 8080:8080 -e PUBLIC_URL=https://... -e AUTH_SECRET=... afterhours
 ```
-
-On App Runner: push the image to ECR, create a service on port 8080 in `us-east-1` (close to Alexa), and set the env
-vars above. Give the instance role `bedrock:InvokeModel` if you want the simulator to use the Bedrock planner.
 
 **Vercel.** `vercel deploy` works as is (`api/index.ts` + `vercel.json`). Add an Upstash Redis integration so OAuth
 codes, alerts, the tape and trade proposals are shared across function instances. Serverless has no timer for the
@@ -128,6 +138,8 @@ overnight tape: set `CRON_SECRET`, then add repository secrets `AFTERHOURS_URL` 
 - `src/market/tape.ts`: the overnight tape · `src/market/alerts.ts`: alerts that fire with timestamps
 - `src/auth/`: OAuth 2.1 server, signed tokens, wallet signature verification
 - `src/chain/`: Solana balances, trade proposals, Jupiter swap client
+- `src/store/`: state in memory, Upstash Redis, or DynamoDB (one contract test suite for all three)
+- `infra/aws.yaml`, `scripts/deploy-aws.sh`: the AWS stack
 - `src/http/`: router, pages (link, confirm, landing), simulator, trade API
 - `src/sim/planner.ts`: Bedrock (Claude) and scripted planners (with follow-ups like "what about Nvidia?"), MCP client
 

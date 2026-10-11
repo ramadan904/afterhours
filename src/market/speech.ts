@@ -51,9 +51,20 @@ export function nextOpenPhrase(now: Date): string | null {
   return `${day} at 9:30 a.m. Eastern`;
 }
 
+/** "45 minutes", "1 hour and 10 minutes", "2 hours". */
+export function duration(minutes: number): string {
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const hours = `${h} hour${h === 1 ? "" : "s"}`;
+  return m === 0 ? hours : `${hours} and ${m} minute${m === 1 ? "" : "s"}`;
+}
+
 export function sessionSentence(session: MarketSession, now: Date): string {
   const next = nextOpenPhrase(now);
-  const opens = next ? ` It opens ${next}.` : "";
+  // Within three hours of the bell, a countdown is what people want to hear.
+  const toOpen = minutesToNextOpen(now);
+  const opens = toOpen !== null && toOpen <= 180 ? ` It opens in ${duration(toOpen)}.` : next ? ` It opens ${next}.` : "";
   switch (session.phase) {
     case "regular":
       return "The US stock market is open.";

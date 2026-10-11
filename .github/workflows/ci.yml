@@ -31,3 +31,12 @@ jobs:
       - run: node dist/src/node.js & sleep 4
       - run: curl -sf localhost:8787/health | tee health.json
       - run: npx tsx scripts/conformance.ts http://localhost:8787
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+      - run: pip install cfn-lint
+      - run: cfn-lint infra/aws.yaml
+      - run: bash -n scripts/deploy-aws.sh
