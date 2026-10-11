@@ -1,0 +1,22 @@
+# Resolves and verifies xStock mints beyond the core 12 (see the gates in
+# scripts/discover-universe.ts). Runs here because GitHub's runners have the
+# network access needed to check every mint against chain. The verified list
+# is printed in the log and uploaded as an artifact; it's committed by hand
+# after review, because a wrong mint routes money into the wrong asset.
+name: Discover universe
+on:
+  workflow_dispatch:
+  push:
+    paths: ["scripts/discover-universe.ts", ".github/workflows/discover-universe.yml"]
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx tsx scripts/discover-universe.ts > universe-extended.json
+      - run: cat universe-extended.json
+      - uses: actions/upload-artifact@v4
+        with: { name: universe-extended, path: universe-extended.json }
