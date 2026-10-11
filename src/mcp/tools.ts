@@ -21,9 +21,10 @@ import type { Services } from "../services.js";
 import { LISTINGS, listingByTicker, resolveSymbol } from "../market/universe.js";
 import { getMarketSession } from "../market/session.js";
 import { rankByGap, readGap, NOISE_FLOOR_BPS, type GapReading } from "../market/gap.js";
-import { capitalise, gapSentence, pct, sessionSentence, usd, verdictSentence, nextOpenPhrase } from "../market/speech.js";
+import { aroundTime, capitalise, gapSentence, move, pct, sessionSentence, usd, verdictSentence, nextOpenPhrase, whenSpoken } from "../market/speech.js";
 import { PriceSourceError, type Board } from "../market/prices.js";
-import { listAlerts, removeAlert, triggered, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
+import { alertNews, listAlerts, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
+import { overnightRange, readTape, type OvernightRange } from "../market/tape.js";
 import { createIntent, getIntent, intentByCode, maxTradeUsd, type TradeIntent } from "../chain/trade.js";
 
 export interface Caller {
@@ -102,6 +103,26 @@ function shortMove(r: GapReading): string {
   if (r.gapBps === null) return r.spoken;
   const verb = r.kind === "live_gap" ? (r.gapBps > 0 ? "above its share by" : "below its share by") : r.gapBps > 0 ? "up" : "down";
   return `${r.spoken} ${verb} ${pct(r.gapBps)}`;
+}
+
+/**
+ * One sentence on how the night went, when the tape says something the
+ * current number doesn't: a run-up that faded, or a dip that recovered.
+ * Needs at least half an hour of samples to say anything.
+ */
+export function rangeSentence(r: GapReading, range: OvernightRange | null, now: number): string | null {
+  if (!range || range.samples < 6 || r.gapBps === null) return null;
+  const current = r.gapBps;
+  const up = current >= 0;
+  const extreme = up ? range.high : range.low;
+  if (Math.abs(extreme.bps) < 20) return null;
+  // "Overnight" only fits a single night; over a weekend, name the close.
+  const overnight = r.referenceLabel === "yesterday's close" || r.referenceLabel === "today's close";
+  const lead = overnight ? "Overnight it" : `Since ${r.referenceLabel} it`;
+  if (Math.abs(extreme.bps - current) >= 40) {
+    return `${lead} ${up ? "peaked at" : "fell as far as"} ${move(extreme.bps)} ${aroundTime(extreme.at, now)}, and has ${up ? "faded" : "recovered"} since.`;
+  }
+  return `That's close to its ${up ? "high" : "low"} ${overnight ? "of the night" : `since ${r.referenceLabel}`}.`;
 }
 
 function listPhrase(items: string[]): string {
@@ -189,7 +210,9 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         dataSource: z.enum(["jupiter", "sample"]),
         marketPhase: z.string(),
         movers: z.array(z.object(readingShape)),
-        alertsTriggered: z.array(z.object({ ticker: z.string(), thresholdPercent: z.number(), gapPercent: z.number() })),
+        alertsTriggered: z.array(
+          z.object({ ticker: z.string(), thresholdPercent: z.number(), gapPercent: z.number(), firedAt: z.string().nullable(), firedGapPercent: z.number() }),
+        ),
         asOf: z.string(),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
@@ -200,27 +223,36 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const movers = rankByGap(readings)
           .filter((r) => r.kind === "overnight_move" || r.kind === "live_gap")
           .slice(0, count ?? 3);
-        const hits = triggered(await listAlerts(svc.store, caller.sub), readings);
+        const news = alertNews(await listAlerts(svc.store, caller.sub), readings, now);
 
+        // Alerts lead: they are the names this person said they care about.
         const parts = [sampleNote(board) + sessionSentence(session, new Date(now))];
+        for (const n of news) {
+          const name = capitalise(n.reading.spoken);
+          if (n.firedAt) {
+            const still = Math.abs(n.reading.gapBps! - n.firedGapBps) < 15 ? "" : `; it's ${move(n.reading.gapBps!)} now`;
+            parts.push(`Your ${n.reading.spoken} alert went off ${whenSpoken(n.firedAt, now)}, when it was ${move(n.firedGapBps)}${still}.`);
+          } else {
+            parts.push(`Your ${n.reading.spoken} alert at ${pct(n.alert.thresholdBps)} has triggered: ${name} is ${move(n.reading.gapBps!)}.`);
+          }
+        }
         if (movers.length === 0) {
           parts.push("Tokenized stocks are all within normal noise of their share prices.");
         } else {
           const against = session.isRegularHours ? "Biggest gaps against live share prices" : `Biggest moves since ${movers[0].referenceLabel}`;
           parts.push(`${against}: ${listPhrase(movers.map(shortMove))}.`);
         }
-        for (const { alert, reading } of hits) {
-          parts.push(`Your ${reading.spoken} alert at ${pct(alert.thresholdBps)} has triggered: ${shortMove(reading).replace(reading.spoken + " ", "")}.`);
-        }
 
         return say(parts.join(" "), {
           dataSource: board.source,
           marketPhase: session.phase,
           movers: movers.map(readingOut),
-          alertsTriggered: hits.map(({ alert, reading }) => ({
-            ticker: alert.ticker,
-            thresholdPercent: alert.thresholdBps / 100,
-            gapPercent: Math.round(reading.gapBps!) / 100,
+          alertsTriggered: news.map((n) => ({
+            ticker: n.alert.ticker,
+            thresholdPercent: n.alert.thresholdBps / 100,
+            gapPercent: Math.round(n.reading.gapBps!) / 100,
+            firedAt: n.firedAt ? new Date(n.firedAt).toISOString() : null,
+            firedGapPercent: Math.round(n.firedGapBps) / 100,
           })),
           asOf: new Date(board.at).toISOString(),
         });
@@ -236,7 +268,15 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       inputSchema: {
         stock: z.string().min(1).describe("Company name or ticker as the user said it, e.g. 'Tesla', 'NVDA', 'the S&P 500'."),
       },
-      outputSchema: { dataSource: z.enum(["jupiter", "sample"]), ...readingShape, verdict: z.string().nullable() },
+      outputSchema: {
+        dataSource: z.enum(["jupiter", "sample"]),
+        ...readingShape,
+        verdict: z.string().nullable(),
+        overnight: z
+          .object({ highPercent: z.number(), highAt: z.string(), lowPercent: z.number(), lowAt: z.string(), samples: z.number() })
+          .nullable()
+          .describe("Range of the gap since the share last traded, from the overnight tape."),
+      },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ stock }) =>
@@ -247,10 +287,23 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const r = readings.find((x) => x.ticker === listing.ticker);
         if (!r) return fail(`I don't have a price for ${listing.spoken} right now.`);
         const verdict = verdictSentence(r, new Date(now));
-        return say([sampleNote(board) + gapSentence(r), verdict].filter(Boolean).join(" "), {
+        const range =
+          r.kind === "overnight_move" || r.kind === "in_line"
+            ? overnightRange(await readTape(svc), r.ticker, r.referenceAt ? Date.parse(r.referenceAt) : now - 16 * 3600_000)
+            : null;
+        return say([sampleNote(board) + gapSentence(r), rangeSentence(r, range, now), verdict].filter(Boolean).join(" "), {
           dataSource: board.source,
           ...readingOut(r),
           verdict,
+          overnight: range
+            ? {
+                highPercent: Math.round(range.high.bps) / 100,
+                highAt: new Date(range.high.at).toISOString(),
+                lowPercent: Math.round(range.low.bps) / 100,
+                lowAt: new Date(range.low.at).toISOString(),
+                samples: range.samples,
+              }
+            : null,
         });
       }),
   );

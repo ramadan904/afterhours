@@ -99,3 +99,41 @@ export function verdictSentence(r: GapReading, now: Date): string | null {
   }
   return null;
 }
+
+const CLOCK = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true });
+
+/** "2:14 a.m." in New York. */
+export function clockTime(at: number): string {
+  return CLOCK.format(new Date(at)).replace("AM", "a.m.").replace("PM", "p.m.");
+}
+
+/** "at 2:14 a.m. Eastern", "yesterday at 9:05 p.m. Eastern", "Saturday at …". */
+export function whenSpoken(at: number, now: number): string {
+  const day = toEasternParts(new Date(at));
+  const today = toEasternParts(new Date(now));
+  const time = `${clockTime(at)} Eastern`;
+  if (day.date === today.date) return `at ${time}`;
+  const days = Math.round((Date.parse(today.date) - Date.parse(day.date)) / 86_400_000);
+  if (days === 1) return `yesterday at ${time}`;
+  return `${WEEKDAY[day.weekday]} at ${time}`;
+}
+
+/**
+ * "around 1 a.m." for a time told in passing, rounded to the half hour, with
+ * the day when it wasn't today: "yesterday around 11 p.m.", "on Saturday
+ * around 10:30 a.m.".
+ */
+export function aroundTime(at: number, now: number = at): string {
+  const rounded = Math.round(at / 1_800_000) * 1_800_000;
+  const clock = `around ${clockTime(rounded).replace(":00", "")}`;
+  const day = toEasternParts(new Date(rounded));
+  const today = toEasternParts(new Date(now));
+  if (day.date === today.date) return clock;
+  const days = Math.round((Date.parse(today.date) - Date.parse(day.date)) / 86_400_000);
+  return days === 1 ? `yesterday ${clock}` : `on ${WEEKDAY[day.weekday]} ${clock}`;
+}
+
+/** Signed move for speech: "up 2.1 percent" / "down 0.4 percent". */
+export function move(bps: number): string {
+  return `${bps >= 0 ? "up" : "down"} ${pct(bps)}`;
+}

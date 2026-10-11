@@ -25,6 +25,8 @@ import { simulatorPage } from "./simulator.js";
 import { tradeApi } from "./trade-api.js";
 import { simulatorTurn } from "./sim-api.js";
 import { qrSvg } from "./qr.js";
+import { recordTape } from "../market/tape.js";
+import { timingSafeEqual } from "node:crypto";
 
 export const VERSION = "0.1.0";
 const REPO_URL = process.env.REPO_URL ?? "https://github.com/ramadan904/afterhours";
@@ -109,6 +111,21 @@ async function handleMcp(svc: Services, request: Request): Promise<Response> {
   }
 }
 
+/**
+ * The tape recorder, for deployments without a long-running process: a
+ * scheduler (GitHub Actions, Vercel Cron, EventBridge) calls this every few
+ * minutes with `Authorization: Bearer $CRON_SECRET`. Disabled when the secret
+ * isn't set.
+ */
+async function cronTape(svc: Services, request: Request): Promise<Response> {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return json({ error: "not_found" }, 404);
+  const given = Buffer.from(request.headers.get("authorization") ?? "");
+  const expected = Buffer.from(`Bearer ${secret}`);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return json({ error: "unauthorized" }, 401);
+  return json(await recordTape(svc));
+}
+
 export function createApp(svc: Services) {
   return async function fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -132,6 +149,7 @@ export function createApp(svc: Services) {
       if (path.startsWith("/api/trade")) return await tradeApi(svc, request, url);
 
       if (path === "/qr.svg" && method === "GET") return qrSvg(svc, url);
+      if (path === "/api/cron/tape") return await cronTape(svc, request);
       if (path === "/sim") return Response.redirect(`${svc.baseUrl}/sim/${url.search}`, 301);
       if (path === "/sim/" && method === "GET") return simulatorPage({ baseUrl: svc.baseUrl, sample: svc.sample });
       if (path === "/sim/api/turn" && method === "POST") return await simulatorTurn(svc, request);

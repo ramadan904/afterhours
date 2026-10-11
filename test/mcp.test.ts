@@ -85,7 +85,7 @@ describe("MCP over Streamable HTTP", () => {
     await session.call("set_alert", { stock: "Microsoft", percent: 1 });
     expect((await session.call("list_alerts", {})).text).toBe("You have 2 alerts: Coinbase at 3.0 percent and Microsoft at 1.0 percent.");
     const brief = await session.call("overnight_brief", {});
-    expect(brief.text).toContain("Your Coinbase alert at 3.0 percent has triggered: up 3.9 percent.");
+    expect(brief.text).toContain("Your Coinbase alert at 3.0 percent has triggered: Coinbase is up 3.9 percent.");
     expect(brief.text).not.toContain("Microsoft alert");
 
     // Another account sees none of them.

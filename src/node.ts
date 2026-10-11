@@ -5,6 +5,7 @@
 import { createServer } from "node:http";
 import { createApp } from "./http/app.js";
 import { servicesFromEnv } from "./services.js";
+import { SAMPLE_EVERY_MS, recordTape, seedSampleTape } from "./market/tape.js";
 
 const svc = servicesFromEnv();
 const app = createApp(svc);
@@ -14,6 +15,12 @@ const port = Number(process.env.PORT ?? 8787);
 // voice request after a quiet spell is served from memory.
 void svc.prices.warm?.();
 setInterval(() => void svc.prices.warm?.(), 8_000).unref();
+
+// The overnight tape: sample the board and check everyone's alerts on a timer.
+const sample = () =>
+  recordTape(svc).catch((err: Error) => console.error("tape:", err.message));
+void seedSampleTape(svc).then(sample);
+setInterval(sample, SAMPLE_EVERY_MS).unref();
 
 createServer(async (req, res) => {
   const chunks: Buffer[] = [];
