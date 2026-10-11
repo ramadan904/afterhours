@@ -26,6 +26,7 @@ import { simulatorPage } from "./simulator.js";
 import { tradeApi } from "./trade-api.js";
 import { simulatorTurn } from "./sim-api.js";
 import { qrSvg } from "./qr.js";
+import { accountApi } from "./account-api.js";
 import { readTape, recordTape } from "../market/tape.js";
 import { toolStats, uptimeSeconds } from "./stats.js";
 import { timingSafeEqual } from "node:crypto";
@@ -151,6 +152,7 @@ export function createApp(svc: Services) {
       if (path === "/" && method === "GET") return landingPage({ baseUrl: svc.baseUrl, sample: svc.sample, repoUrl: REPO_URL });
       if (path === "/go" && method === "GET") return confirmPage({ code: url.searchParams.get("code") ?? "" });
       if (path.startsWith("/api/trade")) return await tradeApi(svc, request, url);
+      if (path.startsWith("/api/push/") || path === "/api/tape") return await accountApi(svc, request, url);
 
       if (path === "/qr.svg" && method === "GET") return qrSvg(svc, url);
       if (path === "/api/cron/tape") return await cronTape(svc, request);

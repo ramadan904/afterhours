@@ -9,6 +9,7 @@ import { CachedPrices, JupiterPrices, SamplePrices, type PriceSource } from "./m
 import { RpcHoldings, SampleHoldings, type HoldingsSource } from "./chain/holdings.js";
 import { JupiterSwap } from "./chain/trade.js";
 import { storeFromEnv, type Store } from "./store/store.js";
+import type { PushSender } from "./notify/push.js";
 
 export interface Services {
   baseUrl: string;
@@ -23,6 +24,8 @@ export interface Services {
   /** False only for local tooling; never in a deployment Alexa talks to. */
   authRequired: boolean;
   sample: boolean;
+  /** Push delivery; the Web Push sender when unset. Tests inject a fake. */
+  push?: PushSender;
 }
 
 export function servicesFromEnv(env: NodeJS.ProcessEnv = process.env): Services {

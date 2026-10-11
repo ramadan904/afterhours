@@ -120,16 +120,16 @@ export function evaluate(alerts: Alert[], readings: GapReading[], now: number): 
   return { next, fired };
 }
 
-/** Checks every account's alerts. Returns how many fired. */
-export async function evaluateAll(store: Store, readings: GapReading[], now: number): Promise<number> {
-  let count = 0;
+/** Checks every account's alerts. Returns each alert that fired, with its account. */
+export async function evaluateAll(store: Store, readings: GapReading[], now: number): Promise<{ sub: string; alert: Alert }[]> {
+  const out: { sub: string; alert: Alert }[] = [];
   for (const sub of await index(store)) {
     const alerts = await listAlerts(store, sub);
     const { next, fired } = evaluate(alerts, readings, now);
     if (JSON.stringify(next) !== JSON.stringify(alerts)) await store.set(key(sub), next);
-    count += fired.length;
+    for (const alert of fired) out.push({ sub, alert });
   }
-  return count;
+  return out;
 }
 
 export interface AlertNews {

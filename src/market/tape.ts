@@ -21,6 +21,8 @@ import { readGap, type GapReading } from "./gap.js";
 import { getMarketSession, lastRegularClose } from "./session.js";
 import { SAMPLE_BOARD } from "./prices.js";
 import { evaluateAll } from "./alerts.js";
+import { notify } from "../notify/push.js";
+import { alertNotice } from "../notify/notices.js";
 
 export interface TapePoint {
   /** Unix ms. */
@@ -53,7 +55,10 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   const now = svc.now();
   const board = await svc.prices.read();
   const readings = readingsFrom(board, now);
-  const fired = await evaluateAll(svc.store, readings, now);
+  const firedAlerts = await evaluateAll(svc.store, readings, now);
+  const fired = firedAlerts.length;
+  // Tell people now, not at their next briefing. Push failures never stop the tape.
+  await Promise.all(firedAlerts.map(({ sub, alert }) => notify(svc, sub, alertNotice(alert, svc.baseUrl)).catch(() => 0)));
 
   const tape = await readTape(svc);
   const last = tape.at(-1);
