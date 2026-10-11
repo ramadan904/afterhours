@@ -19,7 +19,22 @@ import { USDC, listingByTicker } from "../market/universe.js";
 
 export type TradeSide = "buy" | "sell";
 
-export type TradeStatus = "awaiting_signature" | "submitted" | "confirmed" | "failed" | "expired" | "cancelled";
+export type TradeStatus = "armed" | "awaiting_signature" | "submitted" | "confirmed" | "failed" | "expired" | "cancelled";
+
+/**
+ * "Buy 50 dollars of Tesla if it drops below 360." An armed trade has no code
+ * and can't be signed: it waits for the tape to see the token cross `price`,
+ * then becomes an ordinary proposal with a fresh code and a signing window,
+ * and the account's devices get a push notification.
+ */
+export interface TradeCondition {
+  price: number;
+  /** true: when the token rises above `price`; false: when it drops below. */
+  above: boolean;
+  triggeredAt?: number;
+  /** Token price when it triggered. */
+  triggerPrice?: number;
+}
 
 export interface TradeIntent {
   id: string;
@@ -38,13 +53,38 @@ export interface TradeIntent {
   signature?: string;
   submittedAt?: number;
   error?: string;
+  condition?: TradeCondition;
 }
 
 export const INTENT_TTL_SECONDS = 15 * 60;
+/** How long an armed trade waits for its price. */
+export const ARMED_TTL_SECONDS = 7 * 24 * 3600;
+/** Signing window once a conditional trade triggers (people may be asleep). */
+export const TRIGGERED_TTL_SECONDS = 60 * 60;
+export const MAX_ARMED = 5;
+const ARMED_INDEX = "armed-intents";
 
 export function maxTradeUsd(env: NodeJS.ProcessEnv = process.env): number {
   const v = Number(env.MAX_TRADE_USD);
   return Number.isFinite(v) && v > 0 ? v : 500;
+}
+
+/**
+ * A six-digit code pointing at an intent. Six digits is what a person can
+ * hold in their head between hearing it and typing it. Collisions are retried
+ * rather than allowed to overwrite.
+ */
+async function allocateCode(store: Store, id: string, ttlSeconds: number): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    if (await store.setNew(`code:${candidate}`, id, ttlSeconds)) return candidate;
+  }
+  throw new Error("Could not allocate a confirmation code");
+}
+
+/** Keeps an intent readable for an hour past its own expiry, for status questions. */
+function retention(intent: TradeIntent, now: number): number {
+  return Math.max(3600, Math.ceil((intent.expiresAt - now) / 1000) + 3600);
 }
 
 export async function createIntent(
@@ -53,18 +93,7 @@ export async function createIntent(
   now = Date.now(),
 ): Promise<TradeIntent> {
   const id = randomBytes(16).toString("base64url");
-  // Six digits is what a person can hold in their head between hearing it and
-  // typing it. Collisions are retried rather than allowed to overwrite.
-  let code = "";
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const candidate = String(randomInt(0, 1_000_000)).padStart(6, "0");
-    if (await store.setNew(`code:${candidate}`, id, INTENT_TTL_SECONDS)) {
-      code = candidate;
-      break;
-    }
-  }
-  if (!code) throw new Error("Could not allocate a confirmation code");
-
+  const code = await allocateCode(store, id, INTENT_TTL_SECONDS);
   const intent: TradeIntent = {
     ...input,
     id,
@@ -73,9 +102,77 @@ export async function createIntent(
     expiresAt: now + INTENT_TTL_SECONDS * 1000,
     status: "awaiting_signature",
   };
-  await store.set(`intent:${id}`, intent, INTENT_TTL_SECONDS * 4);
-  await store.set(`latest-intent:${input.sub}`, id, INTENT_TTL_SECONDS * 4);
+  await store.set(`intent:${id}`, intent, retention(intent, now));
+  await store.set(`latest-intent:${input.sub}`, id, retention(intent, now));
   return intent;
+}
+
+/** Arms a conditional trade. It has no code until it triggers. */
+export async function armIntent(
+  store: Store,
+  input: Omit<TradeIntent, "id" | "code" | "createdAt" | "expiresAt" | "status" | "condition">,
+  condition: { price: number; above: boolean },
+  now = Date.now(),
+): Promise<TradeIntent> {
+  const index = (await store.get<string[]>(ARMED_INDEX)) ?? [];
+  const mine = (await Promise.all(index.map((id) => getIntent(store, id, now)))).filter((i) => i?.sub === input.sub && i.status === "armed");
+  if (mine.length >= MAX_ARMED) throw new Error(`You can keep up to ${MAX_ARMED} conditional trades waiting. Cancel one first.`);
+  const intent: TradeIntent = {
+    ...input,
+    id: randomBytes(16).toString("base64url"),
+    code: "",
+    createdAt: now,
+    expiresAt: now + ARMED_TTL_SECONDS * 1000,
+    status: "armed",
+    condition,
+  };
+  await store.set(`intent:${intent.id}`, intent, retention(intent, now));
+  await store.set(`latest-intent:${input.sub}`, intent.id, retention(intent, now));
+  await store.set(ARMED_INDEX, [...index, intent.id]);
+  return intent;
+}
+
+/**
+ * Checks every armed trade against the latest token prices. Each one whose
+ * price has been crossed becomes a signable proposal with a fresh code.
+ * Returns those, for notifying their owners.
+ */
+export async function triggerArmed(store: Store, prices: Map<string, number>, now: number): Promise<TradeIntent[]> {
+  const index = (await store.get<string[]>(ARMED_INDEX)) ?? [];
+  if (index.length === 0) return [];
+  const triggered: TradeIntent[] = [];
+  const keep: string[] = [];
+  for (const id of index) {
+    const intent = await getIntent(store, id, now);
+    if (!intent || intent.status !== "armed" || !intent.condition) {
+      if (intent?.status === "expired") await saveIntent(store, intent, now);
+      continue;
+    }
+    const price = prices.get(intent.ticker);
+    const crossed = price !== undefined && (intent.condition.above ? price >= intent.condition.price : price <= intent.condition.price);
+    if (!crossed) {
+      keep.push(id);
+      continue;
+    }
+    intent.code = await allocateCode(store, id, TRIGGERED_TTL_SECONDS);
+    intent.status = "awaiting_signature";
+    intent.expiresAt = now + TRIGGERED_TTL_SECONDS * 1000;
+    intent.priceAtProposal = price!;
+    intent.condition = { ...intent.condition, triggeredAt: now, triggerPrice: price };
+    await saveIntent(store, intent, now);
+    const recent = (await store.get<string[]>(`triggered:${intent.sub}`)) ?? [];
+    await store.set(`triggered:${intent.sub}`, [...recent, id].slice(-5), 2 * 86_400);
+    triggered.push(intent);
+  }
+  await store.set(ARMED_INDEX, keep);
+  return triggered;
+}
+
+/** Conditional trades of this account that triggered and still await a signature. */
+export async function recentlyTriggered(store: Store, sub: string, now: number): Promise<TradeIntent[]> {
+  const ids = (await store.get<string[]>(`triggered:${sub}`)) ?? [];
+  const intents = await Promise.all(ids.map((id) => getIntent(store, id, now)));
+  return intents.filter((i): i is TradeIntent => i?.status === "awaiting_signature" && i.sub === sub);
 }
 
 export async function intentByCode(store: Store, code: string, now = Date.now()): Promise<TradeIntent | null> {
@@ -85,16 +182,16 @@ export async function intentByCode(store: Store, code: string, now = Date.now())
 
 export async function getIntent(store: Store, id: string, now = Date.now()): Promise<TradeIntent | null> {
   const intent = await store.get<TradeIntent>(`intent:${id}`);
-  if (intent && intent.status === "awaiting_signature" && intent.expiresAt <= now) {
+  if (intent && (intent.status === "awaiting_signature" || intent.status === "armed") && intent.expiresAt <= now) {
     intent.status = "expired";
   }
   return intent;
 }
 
-export async function saveIntent(store: Store, intent: TradeIntent): Promise<void> {
+export async function saveIntent(store: Store, intent: TradeIntent, now = Date.now()): Promise<void> {
   // The code keeps pointing at the intent until it expires, so the confirm
   // page can keep showing its progress after it has been signed.
-  await store.set(`intent:${intent.id}`, intent, INTENT_TTL_SECONDS * 4);
+  await store.set(`intent:${intent.id}`, intent, retention(intent, now));
 }
 
 /** Mints and base-unit amount for a Jupiter ExactIn quote. */

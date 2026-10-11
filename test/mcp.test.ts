@@ -27,12 +27,13 @@ describe("MCP over Streamable HTTP", () => {
     const tools = await session.tools();
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
     expect(Object.keys(byName).sort()).toEqual(
-      ["check_stock", "explain", "list_alerts", "market_status", "my_portfolio", "overnight_brief", "propose_trade", "remove_alert", "set_alert", "trade_status"].sort(),
+      ["cancel_trade", "check_stock", "explain", "list_alerts", "market_status", "my_portfolio", "overnight_brief", "propose_trade", "remove_alert", "set_alert", "trade_status"].sort(),
     );
     for (const name of ["explain", "market_status", "overnight_brief", "check_stock", "my_portfolio", "list_alerts", "trade_status"]) {
       expect(byName[name].annotations?.readOnlyHint, name).toBe(true);
     }
     expect(byName.remove_alert.annotations?.destructiveHint).toBe(true);
+    expect(byName.cancel_trade.annotations?.destructiveHint).toBe(true);
     expect(byName.propose_trade.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
     expect(byName.propose_trade.description).toMatch(/does NOT execute/);
     for (const t of tools) expect(t.outputSchema, t.name).toBeDefined();

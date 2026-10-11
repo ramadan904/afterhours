@@ -9,6 +9,7 @@ import { isPriceAlert } from "../market/alerts.js";
 import { listingByTicker } from "../market/universe.js";
 import { capitalise, clockTime, pct, usd } from "../market/speech.js";
 import type { Notice } from "./push.js";
+import type { TradeIntent } from "../chain/trade.js";
 
 const signed = (bps: number) => `${bps >= 0 ? "up" : "down"} ${pct(bps)}`;
 
@@ -30,5 +31,16 @@ export function alertNotice(alert: Alert, baseUrl: string): Notice {
     body: `Your ${pct(alert.thresholdBps)} alert went off at ${at}, against the share's last close.`,
     url,
     tag: `alert-${alert.ticker}-move`,
+  };
+}
+
+export function triggeredTradeNotice(intent: TradeIntent, baseUrl: string): Notice {
+  const name = capitalise(listingByTicker(intent.ticker)?.spoken ?? intent.ticker);
+  const c = intent.condition!;
+  return {
+    title: `${name} ${c.above ? "rose above" : "dropped below"} ${usd(c.price)}`,
+    body: `Your ${usd(intent.usd)} ${intent.side} is ready to sign. Code ${intent.code}, until ${clockTime(intent.expiresAt)} ET.`,
+    url: `${baseUrl}/go?code=${intent.code}`,
+    tag: `trade-${intent.id}`,
   };
 }

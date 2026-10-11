@@ -39,6 +39,7 @@ export const TOOL_CARD: Record<string, CardKind> = {
   my_portfolio: "portfolio",
   propose_trade: "trade",
   trade_status: "trade",
+  cancel_trade: "trade",
 };
 
 export function toolUiMeta(tool: string): Record<string, unknown> | undefined {
@@ -105,9 +106,9 @@ const RENDER: Record<CardKind, string> = {
   range="<div class=label style='margin-top:12px'>Since "+esc(d.comparedWith.replace(/'s close/,"'s close"))+"</div><div class=range><span class=line></span><span class=tick style='left:"+x(0)+"' title='share price'></span><span class=dot style='left:"+x(d.gapPercent)+"'></span></div><div class=ends><span>low "+pct(o.lowPercent)+" · "+et(o.lowAt)+"</span><span>high "+pct(o.highPercent)+" · "+et(o.highAt)+"</span></div>"}
  document.body.innerHTML="<main><div class=label>"+esc(d.token)+" · "+esc(d.name)+(d.dataSource==="sample"?" · sample data":"")+"</div><div class=big>"+usd(d.tokenPrice)+"</div><div class='"+cls(d.gapPercent||0)+"' style='font-size:20px;font-weight:650'>"+(d.gapPercent==null?"no reference":pct(d.gapPercent))+" <span class=muted style='font-size:14px;font-weight:400'>vs "+esc(d.comparedWith)+(d.sharePrice?" ("+usd(d.sharePrice)+")":"")+"</span></div>"+range+(d.verdict?"<div class=note>"+esc(d.verdict)+"</div>":"")+"</main>"}`,
   portfolio: `function render(d){document.body.innerHTML="<main><div class=label>Portfolio"+(d.dataSource==="sample"?" · sample data":"")+"</div><div class=big>"+usd(d.totalUsd)+"</div><div class="+cls(d.changeUsd)+" style='font-weight:650'>"+(d.changeUsd>=0?"+":"−")+usd(Math.abs(d.changeUsd))+" <span class=muted style='font-weight:400'>since the close</span></div>"+bars(d.positions.map(p=>({k:p.ticker+"x",v:p.changeUsd||0,t:usd(p.valueUsd)})))+"</main>"}`,
-  trade: `const STATUS={awaiting_signature:"waiting for your signature",submitted:"sent, confirming",confirmed:"confirmed on Solana",failed:"not confirmed",expired:"expired",cancelled:"cancelled"};
+  trade: `const STATUS={armed:"armed",awaiting_signature:"waiting for your signature",submitted:"sent, confirming",confirmed:"confirmed on Solana",failed:"not confirmed",expired:"expired",cancelled:"cancelled"};
 function render(d){const live=d.status==="awaiting_signature";const u=new URL(d.confirmUrl);
- document.body.innerHTML="<main><div class=label>"+esc(d.side)+" "+usd(d.usd)+" of "+esc(d.ticker)+"x · "+esc(STATUS[d.status]||d.status)+"</div>"+(live?"<div class=code><div><div class=digits>"+esc(d.code)+"</div><div class=note>Scan, or open "+esc(u.host)+"/go</div></div><div class=qr><img alt='QR code for the confirm page' src='"+esc(u.origin)+"/qr.svg?path="+encodeURIComponent(u.pathname+u.search)+"'></div></div><button id=open>Review and sign</button><div class=note>Nothing happens until you sign in your own wallet.</div>":"<div class=big style='font-size:26px'>"+esc(STATUS[d.status]||d.status)+"</div>")+"</main>";
+ document.body.innerHTML="<main><div class=label>"+esc(d.side)+" "+usd(d.usd)+" of "+esc(d.ticker)+"x · "+esc(STATUS[d.status]||d.status)+"</div>"+(live?"<div class=code><div><div class=digits>"+esc(d.code)+"</div><div class=note>Scan, or open "+esc(u.host)+"/go</div></div><div class=qr><img alt='QR code for the confirm page' src='"+esc(u.origin)+"/qr.svg?path="+encodeURIComponent(u.pathname+u.search)+"'></div></div><button id=open>Review and sign</button><div class=note>Nothing happens until you sign in your own wallet.</div>":(d.status==="armed"?"<div class=big style='font-size:26px'>When it "+(d.triggerDirection==="above"?"rises above ":"drops below ")+usd(d.triggerPrice)+"</div><div class=note>You'll get a code and a notification then. Nothing happens without your signature.</div>":"<div class=big style='font-size:26px'>"+esc(STATUS[d.status]||d.status)+"</div>"))+"</main>";
  const b=document.getElementById("open");if(b)b.onclick=()=>openLink(d.confirmUrl);
  const img=document.querySelector(".qr img");if(img)img.onload=resized}`,
 };

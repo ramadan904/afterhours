@@ -29,11 +29,14 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 
 | | |
 | --- | --- |
-| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 10 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
+| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 11 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
 | **Account linking** | OAuth 2.1 authorization code + **PKCE (S256)**. RFC 9728 protected-resource metadata, RFC 8414 server metadata, `resource` bound to the MCP URI, rotating refresh tokens, and a bare `401` for unauthenticated MCP calls, all as Alexa+'s MCP onboarding asks. You link a **Solana wallet by signing a message** (free, can't move funds), or link a watch-only address. |
 | **Live data** | Token and share prices from Jupiter (one keyless call returns both legs), balances from Solana mainnet RPC. Prices are served from a stale-while-revalidate cache, so tool calls stay well inside Alexa+'s **500 ms** budget. |
 | **Trade confirm page** | `/go`: enter the code, get a fresh Jupiter quote, sign in any Wallet Standard wallet (Phantom, Solflare, Backpack, and others). Afterhours only reports a trade as confirmed once Solana shows it succeeded **and the linked wallet paid for it**. Status flows back to Alexa ("did my trade go through?"). |
 | **Overnight tape** | The board is sampled every 5 minutes into a rolling 48-hour tape, and every account's alerts are checked on each sample. Briefings say *when* an alert went off ("went off at 2:14 a.m. Eastern, when it was up 2.3 percent"), and `check_stock` tells the night's story ("since Friday's close it peaked at up 5.6 percent on Saturday around 10:30 a.m., and has faded since"). |
+| **Push notifications** | Alexa only speaks when spoken to, so when an alert fires at 2 a.m. Afterhours also sends a Web Push to every device the account turned on: "Tesla went above $400". |
+| **Conditional trades** | "Buy 50 dollars of Tesla if it drops below 360." The order waits, armed, until the tape sees the price cross. Then it becomes a signable proposal with a fresh code, your phone is notified, and your wallet still has the last word. |
+| **Companion app** | `/app` is an installable PWA and another MCP client of the same server. It shows your portfolio, the night's moves with a chart of each, alerts you can manage, your latest trade, and the switch for notifications on that device. |
 | **Cards for screens** | The brief, stock, portfolio and trade tools declare **MCP Apps** `ui://` cards, so hosts with a screen (Echo Show, Fire TV, any MCP Apps client) show a visual card next to the spoken answer. These are dependency-free HTML views that follow the host's theme; the trade card has the code, a QR and a "Review and sign" link. |
 | **Alexa+ simulator** | `/sim/`: Alexa+'s MCP client is partner-gated, so this page plays its part. It runs the real OAuth flow, then voice in, voice out, with a live trace of every MCP call and its latency. The planner is **Claude on Amazon Bedrock** when AWS credentials are present, otherwise a deterministic intent matcher. |
 | **Conformance check** | `npm run conformance -- <url>` checks a deployment against the Alexa+ requirements and measures p50/p95 latency over the network. |
@@ -49,7 +52,8 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | `set_alert` | "Tell me if Coinbase moves more than 3 percent", "Tell me if Nvidia goes above 250" | write, idempotent |
 | `list_alerts` | "What alerts do I have?" | read-only |
 | `remove_alert` | "Stop my Tesla alert" | **destructive**, idempotent |
-| `propose_trade` | "Buy 25 dollars of Apple" | write, *not* destructive: proposes only, never executes |
+| `propose_trade` | "Buy 25 dollars of Apple", "Buy 50 dollars of Tesla if it drops below 360" | write, *not* destructive: proposes only, never executes |
+| `cancel_trade` | "Cancel my order" | **destructive**, idempotent |
 | `trade_status` | "Did my trade go through?" | read-only |
 | `explain` | "What's a tokenized stock?", "Why is the token different from the stock?", "Is this safe?" | read-only |
 
@@ -79,7 +83,7 @@ cp .env.example .env    # set AUTH_SECRET at minimum
 npm run dev
 ```
 
-Tests (123, no network needed): `npm test`. They cover the OAuth flow, every tool, the MCP Apps cards, the overnight tape, the live Jupiter/Solana path against faithful fakes, the on-chain payer check, the Bedrock planner loop (against a scripted stand-in for Claude), one contract suite for the memory, Redis and DynamoDB stores, the security fixes, and a compile check of every inline script. CI also runs the server against live mainnet data, lints the AWS template and builds the Docker image. Conformance against any deployment: `npm run conformance -- https://your-host`.
+Tests (138, no network needed): `npm test`. They cover the OAuth flow, every tool, the MCP Apps cards, the overnight tape, the live Jupiter/Solana path against faithful fakes, the on-chain payer check, the Bedrock planner loop (against a scripted stand-in for Claude), one contract suite for the memory, Redis and DynamoDB stores, the security fixes, and a compile check of every inline script. CI also runs the server against live mainnet data, lints the AWS template and builds the Docker image. Conformance against any deployment: `npm run conformance -- https://your-host`.
 
 ### Connect it to an MCP client
 
@@ -134,7 +138,7 @@ overnight tape: set `CRON_SECRET`, then add repository secrets `AFTERHOURS_URL` 
 ```
 
 - `src/market/`: universe and voice aliases, NYSE calendar and sessions, gap logic, speech phrasing, price sources and cache
-- `src/mcp/tools.ts`: the 10 tools · `src/mcp/apps.ts`: MCP Apps cards
+- `src/mcp/tools.ts`: the 11 tools · `src/mcp/apps.ts`: MCP Apps cards
 - `src/market/tape.ts`: the overnight tape · `src/market/alerts.ts`: alerts that fire with timestamps
 - `src/auth/`: OAuth 2.1 server, signed tokens, wallet signature verification
 - `src/chain/`: Solana balances, trade proposals, Jupiter swap client

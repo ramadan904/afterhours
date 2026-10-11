@@ -59,13 +59,13 @@ export async function tradeApi(svc: Services, request: Request, url: URL): Promi
       if (check.status !== "pending") {
         intent.status = check.status;
         intent.error = check.error;
-        await saveIntent(svc.store, intent);
+        await saveIntent(svc.store, intent, svc.now());
       } else if (svc.now() - (intent.submittedAt ?? 0) > NEVER_LANDED_MS && intent.expiresAt > svc.now()) {
         // Nothing on chain: a bogus or dropped signature. Let the owner sign again.
         intent.status = "awaiting_signature";
         intent.signature = undefined;
         intent.error = "the last signature never landed on Solana";
-        await saveIntent(svc.store, intent);
+        await saveIntent(svc.store, intent, svc.now());
       }
     }
     return json(view(intent));
@@ -106,14 +106,14 @@ export async function tradeApi(svc: Services, request: Request, url: URL): Promi
     intent.signature = body.signature;
     intent.submittedAt = svc.now();
     intent.error = undefined;
-    await saveIntent(svc.store, intent);
+    await saveIntent(svc.store, intent, svc.now());
     return json(view(intent));
   }
 
   if (path === "/api/trade/cancel") {
     if (intent.status !== "awaiting_signature") return json({ error: `This trade is ${intent.status.replace("_", " ")}.` }, 409);
     intent.status = "cancelled";
-    await saveIntent(svc.store, intent);
+    await saveIntent(svc.store, intent, svc.now());
     return json(view(intent));
   }
 

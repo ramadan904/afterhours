@@ -135,7 +135,20 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "trade_status", args: code ? { code } : {} };
   }
+  if (/\b(cancel|forget|scrap|drop)\b.*\b(order|trade|buy|sell|purchase)\b/.test(t)) {
+    const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
+    return { tool: "cancel_trade", args: code ? { code } : {} };
+  }
   if (/\b(buy|purchase|sell)\b/.test(t)) {
+    // "... if it drops below 360" / "when it hits $400": a conditional trade.
+    const cond = /\b(?:if|when|once)\b(.*?)\b(?:below|under|above|over|hits?|reach(?:es)?|to)\s+\$?(\d+(?:\.\d+)?)/.exec(t);
+    if (cond) {
+      const head = t.slice(0, cond.index);
+      const side = /\bsell\b/.test(head) ? "sell" : "buy";
+      const usd = amount(head);
+      const stock = head.replace(/^.*?\b(buy|purchase|sell)\b/, "").replace(/\$?\d+(\.\d+)?|dollars?|bucks|usd|worth|\b(of|me|some)\b/g, " ").trim();
+      return { tool: "propose_trade", args: { stock: stock ? stockIn(stock) : "unknown", side, amount_usd: usd ?? 0, trigger_price: Number(cond[2]) } };
+    }
     const side = /\bsell\b/.test(t) ? "sell" : "buy";
     const usd = amount(t);
     const stock = t.replace(/^.*?\b(buy|purchase|sell)\b/, "").replace(/\$?\d+(\.\d+)?|dollars?|bucks|usd|worth|\b(of|me|some)\b/g, " ").replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|twenty five|thirty|forty|fifty|a hundred|hundred)\b/g, " ").trim();

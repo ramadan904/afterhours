@@ -27,7 +27,8 @@ import { aroundTime, capitalise, gapSentence, move, pct, sessionSentence, usd, v
 import { PriceSourceError, type Board } from "../market/prices.js";
 import { alertNews, isPriceAlert, listAlerts, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
 import { overnightRange, readTape, type OvernightRange } from "../market/tape.js";
-import { createIntent, getIntent, intentByCode, maxTradeUsd, type TradeIntent } from "../chain/trade.js";
+import { armIntent, createIntent, getIntent, intentByCode, maxTradeUsd, recentlyTriggered, saveIntent, type TradeIntent } from "../chain/trade.js";
+import { listSubscriptions } from "../notify/push.js";
 
 export interface Caller {
   sub: string;
@@ -197,9 +198,49 @@ function intentOut(i: TradeIntent, baseUrl: string) {
     usd: i.usd,
     priceAtProposal: i.priceAtProposal,
     expiresAt: new Date(i.expiresAt).toISOString(),
-    confirmUrl: `${baseUrl}/go?code=${i.code}`,
+    confirmUrl: i.code ? `${baseUrl}/go?code=${i.code}` : `${baseUrl}/app/`,
     signature: i.signature ?? null,
+    triggerPrice: i.condition?.price ?? null,
+    triggerDirection: i.condition ? (i.condition.above ? ("above" as const) : ("below" as const)) : null,
+    triggeredAt: i.condition?.triggeredAt ? new Date(i.condition.triggeredAt).toISOString() : null,
   };
+}
+
+const intentShape = {
+  code: z.string().describe("Six-digit code to sign with; empty while a conditional trade is still armed."),
+  status: z.string(),
+  side: z.enum(["buy", "sell"]),
+  ticker: z.string(),
+  usd: z.number(),
+  priceAtProposal: z.number(),
+  expiresAt: z.string(),
+  confirmUrl: z.string(),
+  signature: z.string().nullable(),
+  triggerPrice: z.number().nullable(),
+  triggerDirection: z.enum(["above", "below"]).nullable(),
+  triggeredAt: z.string().nullable(),
+};
+
+/** "Your $50 buy of Tesla …": shared by trade_status, cancel_trade and the brief. */
+function tradeSentence(intent: TradeIntent, now: number): string {
+  const name = listingByTicker(intent.ticker)?.spoken ?? intent.ticker;
+  const what = `Your ${usd(intent.usd)} ${intent.side} of ${name}`;
+  const c = intent.condition;
+  const line = c ? `${c.above ? "rises above" : "drops below"} ${usd(c.price)}` : "";
+  const text: Record<TradeIntent["status"], string> = {
+    armed: `${what} is set for when its token ${line}.`,
+    awaiting_signature: c?.triggeredAt
+      ? `${what} triggered ${whenSpoken(c.triggeredAt, now)}, when the token ${c.above ? "rose above" : "dropped below"} ${usd(c.price)}. It's waiting for your signature: the code is ${spokenCode(intent.code)}.`
+      : `${what} is waiting for your signature. The code is ${spokenCode(intent.code)}.`,
+    submitted: `${what} was signed and sent. It's waiting for Solana to confirm it.`,
+    confirmed: `${what} is confirmed on Solana.`,
+    failed: intent.error?.includes("linked wallet")
+      ? `${what} couldn't be confirmed: ${intent.error}.`
+      : `${what} didn't go through. Nothing was filled.`,
+    expired: c && !c.triggeredAt ? `${what} expired before its price was reached, so nothing happened.` : `${what} expired before it was signed, so nothing happened.`,
+    cancelled: `${what} was cancelled, so nothing happened.`,
+  };
+  return capitalise(text[intent.status]);
 }
 
 export function registerTools(server: McpServer, svc: Services, caller: Caller): void {
@@ -348,6 +389,9 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
             parts.push(`Your ${n.reading.spoken} alert at ${pct(n.alert.thresholdBps)} has triggered: ${name} is ${move(n.reading.gapBps!)}.`);
           }
         }
+        // A conditional trade that triggered overnight is the most urgent thing to say.
+        for (const t of await recentlyTriggered(svc.store, caller.sub, now)) parts.push(tradeSentence(t, now));
+
         // Your own positions come before the market's: it's your money.
         const wallet = caller.wallet || svc.sample ? await within(svc.holdings.read(caller.wallet ?? ""), BRIEF_WALLET_BUDGET_MS) : null;
         const mine = wallet ? valuePortfolio(wallet, readings) : null;
@@ -610,26 +654,21 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       _meta: toolUiMeta("propose_trade"),
       title: "Propose a buy or sell (signed in the user's wallet)",
       description:
-        "Prepares a buy or sell of a tokenized stock, paid in USDC, for the user to approve. This does NOT execute anything: it returns a six-digit code, and the trade only happens if the user opens the confirm page and signs it in their own wallet. Read the code to the user and never say the trade is done. Use for 'buy 50 dollars of Tesla', 'sell 100 dollars of Nvidia'.",
+        "Prepares a buy or sell of a tokenized stock, paid in USDC, for the user to approve. This does NOT execute anything: it returns a six-digit code, and the trade only happens if the user opens the confirm page and signs it in their own wallet. Read the code to the user and never say the trade is done. With trigger_price it's a conditional trade: nothing is prepared until the token crosses that price, then the code is created and the user's phone is notified. Use for 'buy 50 dollars of Tesla', 'sell 100 dollars of Nvidia', 'buy 50 dollars of Tesla if it drops below 360'.",
       inputSchema: {
         stock: z.string().min(1).describe("Company name or ticker as the user said it."),
         side: z.enum(["buy", "sell"]),
         amount_usd: z.number().positive().describe("Trade size in US dollars."),
+        trigger_price: z
+          .number()
+          .positive()
+          .optional()
+          .describe("Only for 'if it drops below / rises above X': the token price in dollars that triggers the trade."),
       },
-      outputSchema: {
-        code: z.string(),
-        status: z.string(),
-        side: z.enum(["buy", "sell"]),
-        ticker: z.string(),
-        usd: z.number(),
-        priceAtProposal: z.number(),
-        expiresAt: z.string(),
-        confirmUrl: z.string(),
-        signature: z.string().nullable(),
-      },
+      outputSchema: intentShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async ({ stock, side, amount_usd }) =>
+    async ({ stock, side, amount_usd, trigger_price }) =>
       guard(async () => {
         const listing = resolveSymbol(stock);
         if (!listing) return unknownStock(stock);
@@ -650,11 +689,21 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           }
         }
 
-        const intent = await createIntent(
-          svc.store,
-          { sub: caller.sub, wallet: caller.wallet, ticker: listing.ticker, side, usd: amount_usd, priceAtProposal: r.tokenPrice },
-          now,
-        );
+        const base = { sub: caller.sub, wallet: caller.wallet, ticker: listing.ticker, side, usd: amount_usd, priceAtProposal: r.tokenPrice };
+        if (trigger_price !== undefined && Math.abs(trigger_price / r.tokenPrice - 1) > 0.001) {
+          const above = trigger_price > r.tokenPrice;
+          const armed = await armIntent(svc.store, base, { price: trigger_price, above }, now);
+          const devices = (await listSubscriptions(svc, caller.sub)).length;
+          const tell = devices
+            ? "I'll prepare it then and send a notification to your phone to sign it."
+            : "I'll prepare it then for you to sign. Turn on notifications in the Afterhours app to hear about it right away.";
+          return say(
+            `${sampleNote(board)}OK. When ${possessiveName(listing.spoken)} token ${above ? "rises above" : "drops below"} ${usd(trigger_price)}, I'll get a ${usd(amount_usd)} ${side} ready. It's at ${usd(r.tokenPrice)} now. ${tell} Nothing happens without your signature.`,
+            intentOut(armed, svc.baseUrl),
+          );
+        }
+
+        const intent = await createIntent(svc.store, base, now);
         const parts = [
           `${sampleNote(board)}A ${side} of ${usd(amount_usd)} of ${listing.spoken} at about ${usd(r.tokenPrice)} is ready for you to sign.`,
           `Open ${spokenUrl(svc.baseUrl, "/go")} and enter code ${spokenCode(intent.code)}. It expires in 15 minutes.`,
@@ -677,19 +726,9 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       _meta: toolUiMeta("trade_status"),
       title: "Status of a proposed trade",
       description:
-        "Says whether the user's most recent proposed trade (or the one with the given code) is still waiting for a signature, was submitted, confirmed on Solana, failed, or expired. Use for 'did my trade go through?'.",
+        "Says whether the user's most recent proposed trade (or the one with the given code) is armed and waiting for its price, waiting for a signature, submitted, confirmed on Solana, failed, cancelled, or expired. Use for 'did my trade go through?', 'is my Tesla order still on?'.",
       inputSchema: { code: z.string().optional().describe("Six-digit code, if the user says one.") },
-      outputSchema: {
-        code: z.string(),
-        status: z.string(),
-        side: z.enum(["buy", "sell"]),
-        ticker: z.string(),
-        usd: z.number(),
-        priceAtProposal: z.number(),
-        expiresAt: z.string(),
-        confirmUrl: z.string(),
-        signature: z.string().nullable(),
-      },
+      outputSchema: intentShape,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ code }) =>
@@ -701,19 +740,36 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           intent = id ? await getIntent(svc.store, id, svc.now()) : null;
         }
         if (!intent || intent.sub !== caller.sub) return fail("I don't see a recent trade for you.");
-        const name = listingByTicker(intent.ticker)?.spoken ?? intent.ticker;
-        const what = `Your ${usd(intent.usd)} ${intent.side} of ${name}`;
-        const text: Record<TradeIntent["status"], string> = {
-          awaiting_signature: `${what} is waiting for your signature. The code is ${spokenCode(intent.code)}.`,
-          submitted: `${what} was signed and sent. It's waiting for Solana to confirm it.`,
-          confirmed: `${what} is confirmed on Solana.`,
-          failed: intent.error?.includes("linked wallet")
-            ? `${what} couldn't be confirmed: ${intent.error}.`
-            : `${what} didn't go through. Nothing was filled.`,
-          expired: `${what} expired before it was signed, so nothing happened.`,
-          cancelled: `${what} was cancelled, so nothing happened.`,
-        };
-        return say(capitalise(text[intent.status]), intentOut(intent, svc.baseUrl));
+        return say(tradeSentence(intent, svc.now()), intentOut(intent, svc.baseUrl));
+      }),
+  );
+
+  server.registerTool(
+    "cancel_trade",
+    {
+      _meta: toolUiMeta("cancel_trade"),
+      title: "Cancel a proposed or conditional trade",
+      description:
+        "Cancels the user's most recent trade that hasn't been signed yet (an armed conditional trade, or one waiting for a signature), or the one with the given code. Use for 'cancel my order', 'forget the Tesla buy'.",
+      inputSchema: { code: z.string().optional().describe("Six-digit code, if the user says one.") },
+      outputSchema: intentShape,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ code }) =>
+      guard(async () => {
+        let intent: TradeIntent | null = null;
+        if (code) intent = await intentByCode(svc.store, code, svc.now());
+        if (!intent) {
+          const id = await svc.store.get<string>(`latest-intent:${caller.sub}`);
+          intent = id ? await getIntent(svc.store, id, svc.now()) : null;
+        }
+        if (!intent || intent.sub !== caller.sub) return fail("I don't see a trade to cancel.");
+        if (intent.status !== "armed" && intent.status !== "awaiting_signature") {
+          return fail(`${tradeSentence(intent, svc.now())} There's nothing to cancel.`);
+        }
+        intent.status = "cancelled";
+        await saveIntent(svc.store, intent, svc.now());
+        return say(tradeSentence(intent, svc.now()), intentOut(intent, svc.baseUrl));
       }),
   );
 }

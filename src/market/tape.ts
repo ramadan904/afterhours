@@ -22,7 +22,8 @@ import { getMarketSession, lastRegularClose } from "./session.js";
 import { SAMPLE_BOARD } from "./prices.js";
 import { evaluateAll } from "./alerts.js";
 import { notify } from "../notify/push.js";
-import { alertNotice } from "../notify/notices.js";
+import { alertNotice, triggeredTradeNotice } from "../notify/notices.js";
+import { triggerArmed } from "../chain/trade.js";
 
 export interface TapePoint {
   /** Unix ms. */
@@ -51,7 +52,7 @@ export function readingsFrom(board: Awaited<ReturnType<Services["prices"]["read"
  * Samples the board once: appends to the tape (unless another instance did so
  * within the last few minutes) and checks every account's alerts.
  */
-export async function recordTape(svc: Services): Promise<{ recorded: boolean; fired: number; points: number }> {
+export async function recordTape(svc: Services): Promise<{ recorded: boolean; fired: number; triggered: number; points: number }> {
   const now = svc.now();
   const board = await svc.prices.read();
   const readings = readingsFrom(board, now);
@@ -60,15 +61,20 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   // Tell people now, not at their next briefing. Push failures never stop the tape.
   await Promise.all(firedAlerts.map(({ sub, alert }) => notify(svc, sub, alertNotice(alert, svc.baseUrl)).catch(() => 0)));
 
+  // Conditional trades whose price was crossed become signable now.
+  const prices = new Map(readings.map((r) => [r.ticker, r.tokenPrice]));
+  const triggered = await triggerArmed(svc.store, prices, now);
+  await Promise.all(triggered.map((t) => notify(svc, t.sub, triggeredTradeNotice(t, svc.baseUrl)).catch(() => 0)));
+
   const tape = await readTape(svc);
   const last = tape.at(-1);
-  if (last && now - last.at < SAMPLE_EVERY_MS * 0.8) return { recorded: false, fired, points: tape.length };
+  if (last && now - last.at < SAMPLE_EVERY_MS * 0.8) return { recorded: false, fired, triggered: triggered.length, points: tape.length };
 
   const gaps: Record<string, number> = {};
   for (const r of readings) if (r.gapBps !== null && r.kind !== "stale_reference") gaps[r.ticker] = r.gapBps;
   const next = [...tape.filter((p) => now - p.at <= KEEP_MS), { at: now, gaps }];
   await svc.store.set(TAPE_KEY, next);
-  return { recorded: true, fired, points: next.length };
+  return { recorded: true, fired, triggered: triggered.length, points: next.length };
 }
 
 export interface Extreme {
