@@ -132,6 +132,8 @@ describe("scripted planner", () => {
     ["Is the Nvidia token trading rich?", "check_stock", { stock: "nvidia" }],
     ["How's my portfolio?", "my_portfolio", {}],
     ["Tell me if Coinbase moves more than 3 percent", "set_alert", { stock: "coinbase", percent: 3 }],
+    ["Tell me if Nvidia goes above 250", "set_alert", { stock: "nvidia", price: 250 }],
+    ["Let me know if Apple drops below $300", "set_alert", { stock: "apple", price: 300 }],
     ["What alerts do I have?", "list_alerts", {}],
     ["Stop my Tesla alert", "remove_alert", { stock: "tesla" }],
     ["Buy 25 dollars of Apple", "propose_trade", { stock: "apple", side: "buy", amount_usd: 25 }],

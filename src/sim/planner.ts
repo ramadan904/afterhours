@@ -143,7 +143,13 @@ export function route(utterance: string): { tool: string; args: Record<string, u
   }
   if (/\b(remove|delete|stop|cancel)\b.*\balert\b/.test(t)) return { tool: "remove_alert", args: { stock: stockIn(t.replace(/\b(remove|delete|stop|cancel)\b|\b(my|the)\b|\balert\b/g, " ")) } };
   if (/\b(what|which|list|my)\b.*\balerts\b/.test(t)) return { tool: "list_alerts", args: {} };
-  if (/\b(tell|let|alert|notify|warn)\b.*\b(if|when)\b/.test(t) || /\bset (an |a )?alert\b/.test(t)) {
+  if (/\b(tell|let|alert|notify|warn)\b.*\b(if|when)\b/.test(t) || /\bset (an |a )?(price )?alert\b/.test(t)) {
+    // "goes above 400", "drops below $300", "hits 250 dollars": a price alert.
+    const level = /\b(?:above|over|below|under|hits?|reach(?:es)?|to)\s+\$?(\d+(?:\.\d+)?)(?!\s*(?:%|percent))/.exec(t);
+    if (level) {
+      const named = /\b(?:if|when)\s+(.+?)\s+(?:goes|gets|is|trades|drops|falls|rises|climbs|hits|reaches)/.exec(t)?.[1] ?? t;
+      return { tool: "set_alert", args: { stock: stockIn(named), price: Number(level[1]) } };
+    }
     const percent = /(\d+(?:\.\d+)?)\s*(?:%|percent)/.exec(t)?.[1] ?? Object.entries(NUMBER_WORDS).find(([w]) => new RegExp(`\\b${w}\\s+percent`).test(t))?.[1];
     const named = /\b(?:if|when)\s+(.+?)\s+(?:moves|goes|drifts|jumps|drops|is|gets|changes)/.exec(t)?.[1] ?? t;
     return { tool: "set_alert", args: { stock: stockIn(named), percent: Number(percent ?? 2) } };

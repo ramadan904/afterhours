@@ -24,7 +24,7 @@ import { getMarketSession } from "../market/session.js";
 import { rankByGap, readGap, NOISE_FLOOR_BPS, type GapReading } from "../market/gap.js";
 import { aroundTime, capitalise, gapSentence, move, pct, sessionSentence, usd, verdictSentence, nextOpenPhrase, whenSpoken } from "../market/speech.js";
 import { PriceSourceError, type Board } from "../market/prices.js";
-import { alertNews, listAlerts, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
+import { alertNews, isPriceAlert, listAlerts, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
 import { overnightRange, readTape, type OvernightRange } from "../market/tape.js";
 import { createIntent, getIntent, intentByCode, maxTradeUsd, type TradeIntent } from "../chain/trade.js";
 
@@ -60,6 +60,11 @@ function unknownStock(said: string): Result {
 
 function sampleNote(board: Board): string {
   return board.source === "sample" ? "Using sample data. " : "";
+}
+
+/** "Tesla's", "the S&P 500 fund's". */
+function possessiveName(spoken: string): string {
+  return `${spoken}'s`;
 }
 
 /** "4 7 2 9 1 3": digits spaced so a speech engine reads them one by one. */
@@ -254,7 +259,16 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           .nullable()
           .describe("The linked wallet's overnight change, when it could be read within the latency budget."),
         alertsTriggered: z.array(
-          z.object({ ticker: z.string(), thresholdPercent: z.number(), gapPercent: z.number(), firedAt: z.string().nullable(), firedGapPercent: z.number() }),
+          z.object({
+            ticker: z.string(),
+            kind: z.enum(["move", "price"]),
+            price: z.number().nullable(),
+            tokenPrice: z.number(),
+            thresholdPercent: z.number().nullable(),
+            gapPercent: z.number(),
+            firedAt: z.string().nullable(),
+            firedGapPercent: z.number(),
+          }),
         ),
         asOf: z.string(),
       },
@@ -272,6 +286,16 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const parts = [sampleNote(board) + sessionSentence(session, new Date(now))];
         for (const n of news) {
           const name = capitalise(n.reading.spoken);
+          if (isPriceAlert(n.alert)) {
+            const dir = n.alert.above ? "above" : "below";
+            const nowAt = `it's at ${usd(n.reading.tokenPrice)} now`;
+            parts.push(
+              n.firedAt
+                ? `${capitalise(possessiveName(n.reading.spoken))} token went ${dir} ${usd(n.alert.price!)} ${whenSpoken(n.firedAt, now)}; ${nowAt}.`
+                : `${capitalise(possessiveName(n.reading.spoken))} token is ${dir} your ${usd(n.alert.price!)} line, at ${usd(n.reading.tokenPrice)}.`,
+            );
+            continue;
+          }
           if (n.firedAt) {
             const still = Math.abs(n.reading.gapBps! - n.firedGapBps) < 15 ? "" : `; it's ${move(n.reading.gapBps!)} now`;
             parts.push(`Your ${n.reading.spoken} alert went off ${whenSpoken(n.firedAt, now)}, when it was ${move(n.firedGapBps)}${still}.`);
@@ -302,8 +326,11 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           portfolio: mine && mine.positions.length > 0 ? { totalUsd: Math.round(mine.total * 100) / 100, changeUsd: Math.round(mine.change * 100) / 100, leader: mine.biggest?.ticker ?? null } : null,
           alertsTriggered: news.map((n) => ({
             ticker: n.alert.ticker,
-            thresholdPercent: n.alert.thresholdBps / 100,
-            gapPercent: Math.round(n.reading.gapBps!) / 100,
+            kind: isPriceAlert(n.alert) ? ("price" as const) : ("move" as const),
+            price: n.alert.price ?? null,
+            tokenPrice: n.reading.tokenPrice,
+            thresholdPercent: isPriceAlert(n.alert) ? null : n.alert.thresholdBps / 100,
+            gapPercent: Math.round(n.reading.gapBps ?? 0) / 100,
             firedAt: n.firedAt ? new Date(n.firedAt).toISOString() : null,
             firedGapPercent: Math.round(n.firedGapBps) / 100,
           })),
@@ -429,25 +456,50 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
   server.registerTool(
     "set_alert",
     {
-      title: "Set a move alert",
+      title: "Set a move or price alert",
       description:
-        "Remembers that the user wants to hear when a tokenized stock moves at least a given percent away from its share price. Triggered alerts are read out at the start of the next briefing. Replaces any existing alert for the same stock. Use for 'tell me if Tesla moves more than 2 percent'.",
+        "Remembers that the user wants to hear about a tokenized stock: either when it moves at least a given percent away from its share price (percent), or when its token crosses a dollar price (price; direction is worked out from where it trades now). Alerts are watched around the clock and read out, with the time they went off, at the start of the next briefing. Replaces an existing alert of the same kind for that stock. Use for 'tell me if Tesla moves more than 2 percent', 'tell me if Nvidia goes above 250', 'let me know if Apple drops below 300'.",
       inputSchema: {
         stock: z.string().min(1).describe("Company name or ticker as the user said it."),
-        percent: z.number().min(0.2).max(50).describe("Move size in percent, e.g. 2 for two percent."),
+        percent: z.number().min(0.2).max(50).optional().describe("Move size in percent, e.g. 2 for two percent."),
+        price: z.number().positive().optional().describe("Token price in US dollars to watch for, e.g. 400."),
       },
-      outputSchema: { ticker: z.string(), thresholdPercent: z.number(), alertCount: z.number() },
+      outputSchema: {
+        ticker: z.string(),
+        kind: z.enum(["move", "price"]),
+        thresholdPercent: z.number().nullable(),
+        price: z.number().nullable(),
+        direction: z.enum(["above", "below"]).nullable(),
+        alertCount: z.number(),
+      },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ stock, percent }) =>
+    async ({ stock, percent, price }) =>
       guard(async () => {
         const listing = resolveSymbol(stock);
         if (!listing) return unknownStock(stock);
-        const thresholdBps = Math.max(NOISE_FLOOR_BPS, Math.round(percent * 100));
+        if ((percent === undefined) === (price === undefined)) {
+          return fail(`Should I watch ${listing.spoken} for a percent move, or a price? For example, 2 percent, or above $400.`);
+        }
+        if (price !== undefined) {
+          const { readings } = await allReadings();
+          const now = readings.find((r) => r.ticker === listing.ticker)?.tokenPrice;
+          if (!now) return fail(`I don't have a price for ${listing.spoken} right now, so I can't set that.`);
+          const above = price > now;
+          const list = await upsertAlert(svc.store, caller.sub, { ticker: listing.ticker, thresholdBps: 0, price, above, createdAt: svc.now() });
+          return say(
+            `Done. I'll tell you when ${possessiveName(listing.spoken)} token goes ${above ? "above" : "below"} ${usd(price)}. It's at ${usd(now)} now.`,
+            { ticker: listing.ticker, kind: "price", thresholdPercent: null, price, direction: above ? "above" : "below", alertCount: list.length },
+          );
+        }
+        const thresholdBps = Math.max(NOISE_FLOOR_BPS, Math.round(percent! * 100));
         const list = await upsertAlert(svc.store, caller.sub, { ticker: listing.ticker, thresholdBps, createdAt: svc.now() });
         return say(`Done. I'll tell you when ${listing.spoken} moves ${pct(thresholdBps)} or more from its share price.`, {
           ticker: listing.ticker,
+          kind: "move",
           thresholdPercent: thresholdBps / 100,
+          price: null,
+          direction: null,
           alertCount: list.length,
         });
       }),
@@ -457,19 +509,31 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
     "list_alerts",
     {
       title: "List my alerts",
-      description: "Lists the move alerts the user has set. Use for 'what alerts do I have?'.",
+      description: "Lists the move and price alerts the user has set. Use for 'what alerts do I have?'.",
       inputSchema: {},
-      outputSchema: { alerts: z.array(z.object({ ticker: z.string(), name: z.string(), thresholdPercent: z.number() })), max: z.number() },
+      outputSchema: {
+        alerts: z.array(
+          z.object({ ticker: z.string(), name: z.string(), kind: z.enum(["move", "price"]), thresholdPercent: z.number().nullable(), price: z.number().nullable(), direction: z.enum(["above", "below"]).nullable() }),
+        ),
+        max: z.number(),
+      },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async () =>
       guard(async () => {
         const alerts = await listAlerts(svc.store, caller.sub);
-        const named = alerts.map((a) => ({ ticker: a.ticker, name: listingByTicker(a.ticker)?.spoken ?? a.ticker, thresholdPercent: a.thresholdBps / 100 }));
+        const named = alerts.map((a) => ({
+          ticker: a.ticker,
+          name: listingByTicker(a.ticker)?.spoken ?? a.ticker,
+          kind: isPriceAlert(a) ? ("price" as const) : ("move" as const),
+          thresholdPercent: isPriceAlert(a) ? null : a.thresholdBps / 100,
+          price: a.price ?? null,
+          direction: isPriceAlert(a) ? (a.above ? ("above" as const) : ("below" as const)) : null,
+        }));
         const text =
           named.length === 0
             ? "You don't have any alerts. You can say, tell me if Tesla moves more than 2 percent."
-            : `You have ${named.length === 1 ? "one alert" : `${named.length} alerts`}: ${listPhrase(named.map((a) => `${a.name} at ${pct(a.thresholdPercent * 100)}`))}.`;
+            : `You have ${named.length === 1 ? "one alert" : `${named.length} alerts`}: ${listPhrase(named.map((a) => (a.kind === "price" ? `${a.name} ${a.direction} ${usd(a.price!)}` : `${a.name} at ${pct(a.thresholdPercent! * 100)}`)))}.`;
         return say(text, { alerts: named, max: MAX_ALERTS });
       }),
   );

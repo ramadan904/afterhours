@@ -96,7 +96,9 @@ function bars(rows){const max=Math.max(1,...rows.map(r=>Math.abs(r.v)));return r
 `;
 
 const RENDER: Record<CardKind, string> = {
-  brief: `function render(d){const a=(d.alertsTriggered||[]).map(x=>"<div class=alert><b>"+esc(x.ticker)+"x</b> alert ("+x.thresholdPercent+"%) "+(x.firedAt?"went off at "+et(x.firedAt)+", "+pct(x.firedGapPercent)+" · now ":"")+"<span class="+cls(x.gapPercent)+">"+pct(x.gapPercent)+"</span></div>").join("");
+  brief: `function render(d){const a=(d.alertsTriggered||[]).map(x=>x.kind==="price"
+  ?"<div class=alert><b>"+esc(x.ticker)+"x</b> price alert ("+usd(x.price)+") "+(x.firedAt?"crossed at "+et(x.firedAt)+" · ":"")+"now "+usd(x.tokenPrice)+"</div>"
+  :"<div class=alert><b>"+esc(x.ticker)+"x</b> alert ("+x.thresholdPercent+"%) "+(x.firedAt?"went off at "+et(x.firedAt)+", "+pct(x.firedGapPercent)+" · now ":"")+"<span class="+cls(x.gapPercent)+">"+pct(x.gapPercent)+"</span></div>").join("");
  document.body.innerHTML="<main><div class=label>"+esc(d.marketPhase)+" · biggest moves"+(d.dataSource==="sample"?" · sample data":"")+"</div>"+a+(d.movers.length?bars(d.movers.map(m=>({k:m.token,v:m.gapPercent,t:pct(m.gapPercent)}))):"<p class=muted>Everything is within normal noise.</p>")+"<div class=note>vs "+esc(d.movers[0]?d.movers[0].comparedWith:"share prices")+"</div></main>"}`,
   stock: `function render(d){let range="";const o=d.overnight;
  if(o&&d.gapPercent!=null){const lo=Math.min(o.lowPercent,0,d.gapPercent),hi=Math.max(o.highPercent,0,d.gapPercent),w=hi-lo||1,x=v=>((v-lo)/w*100).toFixed(1)+"%";

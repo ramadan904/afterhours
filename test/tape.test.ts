@@ -116,3 +116,36 @@ describe("spoken times", () => {
     expect(whenSpoken(Date.parse("2026-10-09T23:30:00Z"), now)).toBe("Friday at 7:30 p.m. Eastern");
   });
 });
+
+describe("price alerts", () => {
+  const priced = (ticker: string, tokenPrice: number): GapReading => ({ ...reading(ticker, 100), tokenPrice });
+  const above: Alert = { ticker: "TSLA", thresholdBps: 0, price: 400, above: true, createdAt: 0 };
+
+  it("fires on crossing the line, once, and re-arms 1% back on the other side", () => {
+    expect(evaluate([above], [priced("TSLA", 399)], 1).fired).toHaveLength(0);
+    const fired = evaluate([above], [priced("TSLA", 401.5)], 1000);
+    expect(fired.next[0]).toMatchObject({ firedAt: 1000, firedPrice: 401.5 });
+    expect(evaluate(fired.next, [priced("TSLA", 398)], 2000).next[0].firedAt).toBe(1000);
+    expect(evaluate(fired.next, [priced("TSLA", 395)], 2000).next[0].firedAt).toBeUndefined();
+  });
+
+  it("works through the tools: set from where it trades, listed, and reported with its time", async () => {
+    const h = harness();
+    const { tokens } = await linkWallet(h.app);
+    const session = await mcp(h, tokens.access_token);
+    expect((await session.call("set_alert", { stock: "Tesla", price: 365 })).text).toBe(
+      "Done. I'll tell you when Tesla's token goes below $365. It's at $370.56 now.",
+    );
+    expect((await session.call("set_alert", { stock: "Nvidia", price: 220 })).text).toContain("goes below $220");
+    await session.call("set_alert", { stock: "Tesla", percent: 2 });
+    expect((await session.call("list_alerts", {})).text).toBe("You have 3 alerts: Tesla below $365, Nvidia below $220 and Tesla at 2.0 percent.");
+    expect((await session.call("set_alert", { stock: "Tesla" })).isError).toBe(true);
+
+    // Tesla falls through $365 overnight.
+    const board = await h.svc.prices.read();
+    board.quotes.get("TSLA")!.tokenPrice = 360;
+    await recordTape(h.svc);
+    const brief = await session.call("overnight_brief", {});
+    expect(brief.text).toContain("Tesla's token went below $365 at 11:00 a.m. Eastern; it's at $360 now.");
+  });
+});

@@ -16,14 +16,25 @@ import type { GapReading } from "./gap.js";
 
 export interface Alert {
   ticker: string;
-  /** Fires when |gap| reaches this, in basis points. */
+  /** Move alert: fires when |gap| reaches this, in basis points. 0 for price alerts. */
   thresholdBps: number;
+  /** Price alert: fires when the token crosses this USD price. */
+  price?: number;
+  /** Price alert direction: true for "goes above", false for "falls below". */
+  above?: boolean;
   createdAt: number;
   /** When it last crossed its line (unix ms); cleared when it re-arms. */
   firedAt?: number;
   /** The gap at the moment it fired. */
   firedGapBps?: number;
+  /** The token price at the moment it fired. */
+  firedPrice?: number;
 }
+
+export const isPriceAlert = (a: Alert) => typeof a.price === "number";
+
+/** Price alerts re-arm once the token is this far back on the other side of the line. */
+const PRICE_REARM = 0.01;
 
 export const MAX_ALERTS = 10;
 /** How long a fired alert keeps being mentioned in briefings. */
@@ -40,9 +51,9 @@ async function index(store: Store): Promise<string[]> {
   return (await store.get<string[]>(INDEX)) ?? [];
 }
 
-/** Adds or replaces the alert for a ticker. Returns the full list. */
+/** Adds or replaces the alert of the same kind for a ticker. Returns the full list. */
 export async function upsertAlert(store: Store, sub: string, alert: Alert): Promise<Alert[]> {
-  const current = (await listAlerts(store, sub)).filter((a) => a.ticker !== alert.ticker);
+  const current = (await listAlerts(store, sub)).filter((a) => a.ticker !== alert.ticker || isPriceAlert(a) !== isPriceAlert(alert));
   if (current.length >= MAX_ALERTS) {
     throw new Error(`You can keep up to ${MAX_ALERTS} alerts. Remove one first.`);
   }
@@ -76,6 +87,23 @@ export function evaluate(alerts: Alert[], readings: GapReading[], now: number): 
   const fired: Alert[] = [];
   const next = alerts.map((alert) => {
     const reading = readings.find((r) => r.ticker === alert.ticker);
+    if (isPriceAlert(alert)) {
+      if (!reading) return alert;
+      const price = reading.tokenPrice;
+      const line = alert.price!;
+      const crossed = alert.above ? price >= line : price <= line;
+      if (!alert.firedAt && crossed) {
+        const updated = { ...alert, firedAt: now, firedPrice: price, firedGapBps: reading.gapBps ?? 0 };
+        fired.push(updated);
+        return updated;
+      }
+      const back = alert.above ? price < line * (1 - PRICE_REARM) : price > line * (1 + PRICE_REARM);
+      if (alert.firedAt && back) {
+        const { firedAt: _f, firedGapBps: _g, firedPrice: _p, ...rearmed } = alert;
+        return rearmed;
+      }
+      return alert;
+    }
     if (!usable(reading)) return alert;
     const size = Math.abs(reading.gapBps);
     if (!alert.firedAt && size >= alert.thresholdBps) {
@@ -110,6 +138,8 @@ export interface AlertNews {
   /** When it crossed, if the tape saw it happen; null when only seen now. */
   firedAt: number | null;
   firedGapBps: number;
+  /** Token price when it crossed (price alerts), else the current price. */
+  firedPrice: number;
 }
 
 /**
@@ -121,11 +151,19 @@ export function alertNews(alerts: Alert[], readings: GapReading[], now: number):
   const out: AlertNews[] = [];
   for (const alert of alerts) {
     const reading = readings.find((r) => r.ticker === alert.ticker);
+    if (!reading) continue;
+    const recent = alert.firedAt && now - alert.firedAt <= FIRED_ALERT_WINDOW_MS;
+    if (isPriceAlert(alert)) {
+      const over = alert.above ? reading.tokenPrice >= alert.price! : reading.tokenPrice <= alert.price!;
+      if (recent) out.push({ alert, reading, firedAt: alert.firedAt!, firedGapBps: alert.firedGapBps ?? 0, firedPrice: alert.firedPrice ?? reading.tokenPrice });
+      else if (over) out.push({ alert, reading, firedAt: null, firedGapBps: reading.gapBps ?? 0, firedPrice: reading.tokenPrice });
+      continue;
+    }
     if (!usable(reading)) continue;
-    if (alert.firedAt && now - alert.firedAt <= FIRED_ALERT_WINDOW_MS) {
-      out.push({ alert, reading, firedAt: alert.firedAt, firedGapBps: alert.firedGapBps ?? reading.gapBps });
+    if (recent) {
+      out.push({ alert, reading, firedAt: alert.firedAt!, firedGapBps: alert.firedGapBps ?? reading.gapBps, firedPrice: reading.tokenPrice });
     } else if (Math.abs(reading.gapBps) >= alert.thresholdBps) {
-      out.push({ alert, reading, firedAt: null, firedGapBps: reading.gapBps });
+      out.push({ alert, reading, firedAt: null, firedGapBps: reading.gapBps, firedPrice: reading.tokenPrice });
     }
   }
   return out;

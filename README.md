@@ -46,7 +46,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | `overnight_brief` | "What happened overnight?", "Anything I should know?" | read-only |
 | `check_stock` | "How's Tesla doing?", "Is the Nvidia token trading rich?" | read-only |
 | `my_portfolio` | "How's my portfolio?" | read-only |
-| `set_alert` | "Tell me if Coinbase moves more than 3 percent" | write, idempotent |
+| `set_alert` | "Tell me if Coinbase moves more than 3 percent", "Tell me if Nvidia goes above 250" | write, idempotent |
 | `list_alerts` | "What alerts do I have?" | read-only |
 | `remove_alert` | "Stop my Tesla alert" | **destructive**, idempotent |
 | `propose_trade` | "Buy 25 dollars of Apple" | write, *not* destructive: proposes only, never executes |
@@ -78,7 +78,7 @@ cp .env.example .env    # set AUTH_SECRET at minimum
 npm run dev
 ```
 
-Tests (93, no network needed): `npm test`. They cover the OAuth flow, every tool, the MCP Apps cards, the overnight tape, the live Jupiter/Solana path against faithful fakes, the on-chain payer check, the security fixes, and a compile check of every inline script. Conformance against any deployment: `npm run conformance -- https://your-host`.
+Tests (100, no network needed): `npm test`. They cover the OAuth flow, every tool, the MCP Apps cards, the overnight tape, the live Jupiter/Solana path against faithful fakes, the on-chain payer check, the security fixes, and a compile check of every inline script. Conformance against any deployment: `npm run conformance -- https://your-host`.
 
 ### Connect it to an MCP client
 
