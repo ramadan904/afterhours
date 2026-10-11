@@ -79,7 +79,7 @@ cp .env.example .env    # set AUTH_SECRET at minimum
 npm run dev
 ```
 
-Tests (123, no network needed): `npm test`. They cover the OAuth flow, every tool, the MCP Apps cards, the overnight tape, the live Jupiter/Solana path against faithful fakes, the on-chain payer check, the security fixes, and a compile check of every inline script. Conformance against any deployment: `npm run conformance -- https://your-host`.
+Tests (123, no network needed): `npm test`. They cover the OAuth flow, every tool, the MCP Apps cards, the overnight tape, the live Jupiter/Solana path against faithful fakes, the on-chain payer check, the Bedrock planner loop (against a scripted stand-in for Claude), one contract suite for the memory, Redis and DynamoDB stores, the security fixes, and a compile check of every inline script. CI also runs the server against live mainnet data, lints the AWS template and builds the Docker image. Conformance against any deployment: `npm run conformance -- https://your-host`.
 
 ### Connect it to an MCP client
 
