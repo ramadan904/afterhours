@@ -4,7 +4,7 @@ import { readGap, closeLabel } from "../src/market/gap.js";
 import { getMarketSession, lastRegularClose } from "../src/market/session.js";
 import { sessionSentence, pct, usd } from "../src/market/speech.js";
 import { CachedPrices, type Board, type PriceSource } from "../src/market/prices.js";
-import { route } from "../src/sim/planner.js";
+import { route, routeInContext, previousRoute } from "../src/sim/planner.js";
 import { spokenCode, spokenUrl } from "../src/mcp/tools.js";
 
 describe("resolveSymbol", () => {
@@ -142,5 +142,37 @@ describe("scripted planner", () => {
     const r = route(said);
     expect(r?.tool).toBe(tool);
     expect(r?.args).toEqual(args);
+  });
+});
+
+describe("scripted planner in conversation", () => {
+  const convo = (...lines: string[]) => lines.flatMap((text) => [{ role: "user" as const, text }, { role: "assistant" as const, text: "ok" }]);
+
+  it("carries the question over to a new stock", () => {
+    expect(routeInContext("What about Nvidia?", previousRoute(convo("How's Tesla doing?")))).toEqual({ tool: "check_stock", args: { stock: "nvidia" } });
+    expect(routeInContext("and Apple", previousRoute(convo("Tell me if Tesla moves more than 2 percent")))).toEqual({
+      tool: "set_alert",
+      args: { stock: "apple", percent: 2 },
+    });
+  });
+
+  it("resolves 'it' to the stock just discussed", () => {
+    expect(routeInContext("Buy 20 dollars of it", previousRoute(convo("How's Tesla doing?")))).toEqual({
+      tool: "propose_trade",
+      args: { stock: "tesla", side: "buy", amount_usd: 20 },
+    });
+  });
+
+  it("changes the amount of the trade just proposed", () => {
+    const history = convo("How's Tesla doing?", "Buy 20 dollars of it");
+    expect(routeInContext("Actually, make it 50", previousRoute(history))).toEqual({
+      tool: "propose_trade",
+      args: { stock: "tesla", side: "buy", amount_usd: 50 },
+    });
+  });
+
+  it("asks instead of guessing a missing amount or stock", () => {
+    expect(routeInContext("Buy some Apple", null)).toEqual({ ask: "How many dollars of Apple would you like to buy?" });
+    expect(routeInContext("Sell 30 dollars", null)).toEqual({ ask: "Which stock would you like to sell?" });
   });
 });

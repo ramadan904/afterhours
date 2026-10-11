@@ -41,13 +41,13 @@ export async function simulatorTurn(svc: Services, request: Request): Promise<Re
     const useBedrock = bedrockConfigured();
     let turn;
     try {
-      turn = useBedrock ? await bedrockTurn(mcp, utterance, history) : await scriptedTurn(mcp, utterance);
+      turn = useBedrock ? await bedrockTurn(mcp, utterance, history) : await scriptedTurn(mcp, utterance, history);
     } catch (err) {
       if (!useBedrock) throw err;
       // A Bedrock outage shouldn't end the demo: fall back to the scripted
       // planner and say so in the trace.
       console.error("Bedrock planner failed:", err);
-      turn = { ...(await scriptedTurn(mcp, utterance)), fallbackReason: (err as Error).message };
+      turn = { ...(await scriptedTurn(mcp, utterance, history)), fallbackReason: (err as Error).message };
     }
     return json({ ...turn, totalMs: Math.round(performance.now() - started) });
   } finally {

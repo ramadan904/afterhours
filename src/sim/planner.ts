@@ -135,8 +135,61 @@ export function route(utterance: string): { tool: string; args: Record<string, u
   return null;
 }
 
-export async function scriptedTurn(mcp: McpSession, utterance: string): Promise<Turn> {
-  const pick = route(utterance);
+export type Route = { tool: string; args: Record<string, unknown> };
+
+/**
+ * `route`, plus the context a conversation carries: "what about Nvidia?"
+ * repeats the last question for a new stock, "buy 20 dollars of it" means the
+ * stock just discussed, and "make it 50" changes the amount of the trade just
+ * proposed. Returns a question instead of a tool call when something needed
+ * (a trade amount) is missing, rather than guessing.
+ */
+export function routeInContext(utterance: string, previous: Route | null): Route | { ask: string } | null {
+  const t = utterance.toLowerCase().replace(/^alexa,?\s*/, "").trim();
+  const prevStock = typeof previous?.args.stock === "string" ? (previous.args.stock as string) : null;
+  const named = resolveSymbol(t);
+
+  // "make it 50", "actually 30 dollars", "make that a hundred"
+  if (previous?.tool === "propose_trade" && /\b(make (it|that)|actually|instead|change (it|that) to)\b/.test(t)) {
+    const usd = amount(t);
+    if (usd) return { tool: "propose_trade", args: { ...previous.args, amount_usd: usd } };
+  }
+
+  // "what about Nvidia?", "and Apple?", "how about the Nasdaq"
+  if (named && /^(and|what about|how about|what's about|and what about|same for|also)\b/.test(t)) {
+    const reuse = previous && ["check_stock", "set_alert", "remove_alert"].includes(previous.tool) ? previous : null;
+    return { tool: reuse?.tool ?? "check_stock", args: { ...(reuse?.args ?? {}), stock: named.aliases[0] } };
+  }
+
+  let pick: Route | null = route(t);
+  if (pick?.tool === "propose_trade") {
+    const unnamed = !resolveSymbol(String(pick.args.stock)) && /\b(it|that|them|some|more|those)\b/.test(t);
+    if (unnamed && prevStock) pick = { ...pick, args: { ...pick.args, stock: prevStock } };
+    if (!resolveSymbol(String(pick.args.stock))) {
+      return { ask: `Which stock would you like to ${pick.args.side}?` };
+    }
+    if (!(Number(pick.args.amount_usd) > 0)) {
+      const name = resolveSymbol(String(pick.args.stock))!.spoken;
+      return { ask: `How many dollars of ${name} would you like to ${pick.args.side}?` };
+    }
+  }
+  return pick;
+}
+
+/** Rebuilds the last routed request from the conversation so far. */
+export function previousRoute(history: HistoryItem[]): Route | null {
+  let prev: Route | null = null;
+  for (const h of history) {
+    if (h.role !== "user") continue;
+    const r = routeInContext(h.text, prev);
+    if (r && "tool" in r) prev = r;
+  }
+  return prev;
+}
+
+export async function scriptedTurn(mcp: McpSession, utterance: string, history: HistoryItem[] = []): Promise<Turn> {
+  const pick = routeInContext(utterance, previousRoute(history));
+  if (pick && "ask" in pick) return { reply: pick.ask, steps: [], planner: "scripted" };
   if (!pick) {
     return {
       reply: "I can tell you what moved overnight, check a stock like Tesla, read your portfolio, set an alert, or prepare a trade for you to sign.",
