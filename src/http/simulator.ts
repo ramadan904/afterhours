@@ -97,7 +97,7 @@ export function simulatorPage(p: { baseUrl: string; sample: boolean }): Response
 const CFG=${cfg};const $=id=>document.getElementById(id);
 const store={get(k){try{return sessionStorage.getItem(k)}catch{return null}},set(k,v){try{v==null?sessionStorage.removeItem(k):sessionStorage.setItem(k,v)}catch{}}};
 let convo=[];
-const CHIPS=["What happened overnight?","How's Tesla doing?","Is the Nvidia token trading rich?","How's my portfolio?","Tell me if Coinbase moves more than 3 percent","Buy 25 dollars of Apple","Did my trade go through?","Is the stock market open?"];
+const CHIPS=["What happened overnight?","How's Tesla doing?","Is the Nvidia token trading rich?","How's my portfolio?","Tell me if Coinbase moves more than 3 percent","Buy 25 dollars of Apple","Did my trade go through?","Why is the token different from the stock?","What can you do?"];
 for(const c of CHIPS){const b=document.createElement("button");b.type="button";b.className="chip";b.textContent=c;b.onclick=()=>ask(c);$("chips").appendChild(b)}
 function tick(){const d=new Date();$("clock").textContent=d.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
  $("mkt").textContent="New York "+d.toLocaleTimeString("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"})}

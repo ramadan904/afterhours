@@ -140,6 +140,10 @@ describe("scripted planner", () => {
     ["sell fifty dollars of nvidia", "propose_trade", { stock: "nvidia", side: "sell", amount_usd: 50 }],
     ["Did my trade go through?", "trade_status", {}],
     ["Is the stock market open?", "market_status", {}],
+    ["What is a tokenized stock?", "explain", { topic: "tokenized_stocks" }],
+    ["Why is the token different from the stock?", "explain", { topic: "price_gap" }],
+    ["Is this safe?", "explain", { topic: "trading_safety" }],
+    ["What can you do?", "explain", { topic: "what_you_can_do" }],
   ])("%s", (said, tool, args) => {
     const r = route(said);
     expect(r?.tool).toBe(tool);

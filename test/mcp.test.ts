@@ -27,9 +27,9 @@ describe("MCP over Streamable HTTP", () => {
     const tools = await session.tools();
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
     expect(Object.keys(byName).sort()).toEqual(
-      ["check_stock", "list_alerts", "market_status", "my_portfolio", "overnight_brief", "propose_trade", "remove_alert", "set_alert", "trade_status"].sort(),
+      ["check_stock", "explain", "list_alerts", "market_status", "my_portfolio", "overnight_brief", "propose_trade", "remove_alert", "set_alert", "trade_status"].sort(),
     );
-    for (const name of ["market_status", "overnight_brief", "check_stock", "my_portfolio", "list_alerts", "trade_status"]) {
+    for (const name of ["explain", "market_status", "overnight_brief", "check_stock", "my_portfolio", "list_alerts", "trade_status"]) {
       expect(byName[name].annotations?.readOnlyHint, name).toBe(true);
     }
     expect(byName.remove_alert.annotations?.destructiveHint).toBe(true);
@@ -227,5 +227,18 @@ describe("personal briefing", () => {
     expect(step.ms).toBeLessThan(500);
     expect(step.text).not.toContain("Your 1 position");
     expect((step.structured as { portfolio: unknown }).portfolio).toBeNull();
+  });
+});
+
+describe("/health", () => {
+  it("reports per-tool latency and the tape", async () => {
+    const { session, h } = await linked();
+    await session.call("check_stock", { stock: "Tesla" });
+    await session.call("check_stock", { stock: "Apple" });
+    const health = await (await h.app(new Request(`${BASE}/health`))).json();
+    expect(health.ok).toBe(true);
+    expect(health.tools.check_stock.calls).toBeGreaterThanOrEqual(2);
+    expect(health.tools.check_stock.p95Ms).toBeLessThan(500);
+    expect(health.tape).toEqual({ points: 0, lastSampleAt: null });
   });
 });

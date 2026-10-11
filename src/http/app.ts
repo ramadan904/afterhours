@@ -26,7 +26,8 @@ import { simulatorPage } from "./simulator.js";
 import { tradeApi } from "./trade-api.js";
 import { simulatorTurn } from "./sim-api.js";
 import { qrSvg } from "./qr.js";
-import { recordTape } from "../market/tape.js";
+import { readTape, recordTape } from "../market/tape.js";
+import { toolStats, uptimeSeconds } from "./stats.js";
 import { timingSafeEqual } from "node:crypto";
 
 export { VERSION } from "../version.js";
@@ -167,6 +168,13 @@ export function createApp(svc: Services) {
           prices: board instanceof Error ? { error: board.message } : { source: board.source, asOf: new Date(board.at).toISOString(), listings: board.quotes.size },
           priceReadMs: Math.round(performance.now() - started),
           mcp: mcpResource(svc),
+          uptimeSeconds: uptimeSeconds(),
+          tape: await readTape(svc).then(
+            (t) => ({ points: t.length, lastSampleAt: t.length ? new Date(t.at(-1)!.at).toISOString() : null }),
+            () => null,
+          ),
+          // Server-side handler time per tool over the last 500 calls.
+          tools: toolStats(),
         });
       }
 

@@ -154,12 +154,24 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const named = /\b(?:if|when)\s+(.+?)\s+(?:moves|goes|drifts|jumps|drops|is|gets|changes)/.exec(t)?.[1] ?? t;
     return { tool: "set_alert", args: { stock: stockIn(named), percent: Number(percent ?? 2) } };
   }
+  const topic = explainTopic(t);
+  if (topic) return { tool: "explain", args: { topic } };
   if (/\b(portfolio|my (stocks|holdings|positions|wallet)|what do i own|how much am i (up|down))\b/.test(t)) return { tool: "my_portfolio", args: {} };
   if (/\b(market|stock market)\b.*\b(open|closed|close)\b|\bwhen does\b.*\bopen\b/.test(t)) return { tool: "market_status", args: {} };
   if (/\b(overnight|while i (was )?(asleep|sleeping|slept)|briefing|brief|what happened|what moved|anything i should know|how are (stocks|markets)|weekend)\b/.test(t)) {
     return { tool: "overnight_brief", args: {} };
   }
   if (/\b(how('s| is)|what('s| is)|check|price|trading|rich|cheap|doing)\b/.test(t)) return { tool: "check_stock", args: { stock: stockIn(t) } };
+  return null;
+}
+
+/** Questions about the concepts, rather than about a price. */
+function explainTopic(t: string): string | null {
+  if (/\b(what can you do|what do you do|help me|how does this work|what is afterhours)\b/.test(t)) return "what_you_can_do";
+  if (/\b(safe|secure|can you (trade|buy|sell) (for me|without)|how do (trades|trading) work)\b/.test(t)) return "trading_safety";
+  if (/\bwhy\b.*\b(different|differ|gap|not the same|higher|lower)\b/.test(t)) return "price_gap";
+  if (/\bwhy\b.*\b(trade|trading|move|moving)\b.*\b(closed|weekend|night|after hours)\b/.test(t)) return "after_hours";
+  if (/\bwhat (is|are) (a |an )?(tokenized stocks?|xstocks?|stock tokens?)\b/.test(t)) return "tokenized_stocks";
   return null;
 }
 
@@ -253,18 +265,38 @@ function bedrockClient(): AnthropicBedrockMantle {
   return bedrock;
 }
 
-export async function bedrockTurn(mcp: McpSession, utterance: string, history: HistoryItem[]): Promise<Turn> {
-  const client = bedrockClient();
+/** The one Messages call the planner makes; Bedrock's client in production, a fake in tests. */
+export interface PlannerClient {
+  beta: {
+    messages: {
+      create(
+        params: Anthropic.Beta.MessageCreateParamsNonStreaming,
+        options?: { fallbackState?: BetaFallbackState },
+      ): Promise<Anthropic.Beta.BetaMessage>;
+    };
+  };
+}
+
+/** Conversation history as the API wants it: alternating, starting with the user. */
+export function historyMessages(history: HistoryItem[], keep = 8): Anthropic.Beta.BetaMessageParam[] {
+  const recent = history.slice(-keep);
+  while (recent.length && recent[0].role !== "user") recent.shift();
+  return recent.map((h) => ({ role: h.role, content: h.text }));
+}
+
+export async function bedrockTurn(
+  mcp: McpSession,
+  utterance: string,
+  history: HistoryItem[],
+  client: PlannerClient = bedrockClient() as unknown as PlannerClient,
+): Promise<Turn> {
   const tools: Anthropic.Beta.BetaTool[] = (await mcp.tools()).map((t) => ({
     name: t.name,
     description: t.description ?? "",
     input_schema: t.inputSchema as Anthropic.Beta.BetaTool.InputSchema,
   }));
 
-  const messages: Anthropic.Beta.BetaMessageParam[] = [
-    ...history.slice(-8).map((h) => ({ role: h.role, content: h.text })),
-    { role: "user", content: utterance },
-  ];
+  const messages: Anthropic.Beta.BetaMessageParam[] = [...historyMessages(history), { role: "user", content: utterance }];
   const steps: Step[] = [];
   const fallbackState = new BetaFallbackState();
 

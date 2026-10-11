@@ -19,6 +19,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { Services } from "../services.js";
 import { toolUiMeta } from "./apps.js";
+import { recordToolTime } from "../http/stats.js";
 import { LISTINGS, listingByTicker, resolveSymbol } from "../market/universe.js";
 import { getMarketSession } from "../market/session.js";
 import { rankByGap, readGap, NOISE_FLOOR_BPS, type GapReading } from "../market/gap.js";
@@ -61,6 +62,20 @@ function unknownStock(said: string): Result {
 function sampleNote(board: Board): string {
   return board.source === "sample" ? "Using sample data. " : "";
 }
+
+/** Answers for the explain tool: two or three sentences each, written to be heard. */
+export const EXPLAIN = {
+  tokenized_stocks:
+    "A tokenized stock is a token on a blockchain, here Solana, that tracks a real company's share, like Tesla or Apple. Each one is backed by a real share held by the issuer, and you hold the token in your own crypto wallet.",
+  after_hours:
+    "The US stock market is open about 33 hours a week, but blockchains never close, so tokenized stocks trade all 168. Nights, weekends and holidays, the token keeps moving while the real share can't.",
+  price_gap:
+    "While the market is shut, the token's price is the crowd's guess at where the share will open, so it drifts away from the last close. When the market reopens, the share sets a real price again and the gap usually closes. A gap while both are trading is different: that one can be hedged.",
+  trading_safety:
+    "I can prepare a trade, but I can never make one. I read you a six-digit code; you open the confirm page, check a fresh quote, and sign it in your own wallet. Afterhours holds no keys, so nothing moves without your signature.",
+  what_you_can_do:
+    "Ask me what happened overnight, how a stock like Tesla is doing, or how your portfolio did since the close. I can watch a stock for a percent move or a price and tell you when it went off, and I can prepare a trade for you to sign in your wallet.",
+} as const;
 
 /** "Tesla's", "the S&P 500 fund's". */
 function possessiveName(spoken: string): string {
@@ -188,6 +203,19 @@ function intentOut(i: TradeIntent, baseUrl: string) {
 }
 
 export function registerTools(server: McpServer, svc: Services, caller: Caller): void {
+  // Time every handler for /health. Wrapping registerTool once keeps the
+  // tool definitions below free of timing code.
+  const register = server.registerTool.bind(server);
+  server.registerTool = ((name: string, config: unknown, cb: (...a: unknown[]) => Promise<unknown>) =>
+    register(name, config as never, (async (...a: unknown[]) => {
+      const started = performance.now();
+      try {
+        return await cb(...a);
+      } finally {
+        recordToolTime(name, performance.now() - started);
+      }
+    }) as never)) as typeof server.registerTool;
+
   const allReadings = async () => {
     const board = await svc.prices.read();
     const now = svc.now();
@@ -209,6 +237,23 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       return fail(err instanceof Error ? err.message : "Something went wrong.");
     }
   };
+
+  server.registerTool(
+    "explain",
+    {
+      title: "Explain tokenized stocks and how Afterhours works",
+      description:
+        "Short spoken explanations for people new to this: what a tokenized stock is, why it trades when the stock market is closed, why its price can differ from the real share, how trading by voice works and why it's safe, and what Afterhours can do. Use for 'what is a tokenized stock?', 'why is the token different from the stock?', 'is this safe?', 'how do trades work?', 'what can you do?'.",
+      inputSchema: {
+        topic: z
+          .enum(["tokenized_stocks", "after_hours", "price_gap", "trading_safety", "what_you_can_do"])
+          .describe("tokenized_stocks: what they are. after_hours: why they trade when markets are shut. price_gap: why the token's price differs from the share's. trading_safety: how voice trades work and why they're safe. what_you_can_do: Afterhours' features."),
+      },
+      outputSchema: { topic: z.string(), text: z.string() },
+      annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
+    },
+    async ({ topic }) => say(EXPLAIN[topic], { topic, text: EXPLAIN[topic] }),
+  );
 
   server.registerTool(
     "market_status",
