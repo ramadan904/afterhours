@@ -9,6 +9,7 @@
 import type { Services } from "../services.js";
 import { confirmOnChain, intentByCode, saveIntent, swapLegs, type TradeIntent } from "../chain/trade.js";
 import { USDC, listingByTicker } from "../market/universe.js";
+import { RateLimit } from "./limit.js";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -16,18 +17,10 @@ const json = (body: unknown, status = 200) =>
 const SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,90}$/;
 const SLIPPAGE_BPS = Number(process.env.TRADE_SLIPPAGE_BPS ?? 50);
 
-const attempts = new Map<string, { n: number; reset: number }>();
-function limited(request: Request): boolean {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const now = Date.now();
-  const a = attempts.get(ip);
-  if (!a || a.reset < now) {
-    attempts.set(ip, { n: 1, reset: now + 10 * 60_000 });
-    return false;
-  }
-  a.n += 1;
-  return a.n > 60;
-}
+/** Code lookups and actions: generous for a person, useless for guessing a 1-in-a-million code. */
+const tradeLimit = new RateLimit(60, 10 * 60_000);
+/** A signature that hasn't landed by now never will (blockhashes expire in ~90s). */
+const NEVER_LANDED_MS = 120_000;
 
 function view(i: TradeIntent) {
   const listing = listingByTicker(i.ticker);
@@ -55,7 +48,7 @@ async function find(svc: Services, code: unknown): Promise<TradeIntent | Respons
 }
 
 export async function tradeApi(svc: Services, request: Request, url: URL): Promise<Response> {
-  if (limited(request)) return json({ error: "Too many attempts. Wait a few minutes." }, 429);
+  if (tradeLimit.exceeded(request)) return json({ error: "Too many attempts. Wait a few minutes." }, 429);
   const path = url.pathname;
 
   if (path === "/api/trade" && request.method === "GET") {
@@ -66,6 +59,12 @@ export async function tradeApi(svc: Services, request: Request, url: URL): Promi
       if (check.status !== "pending") {
         intent.status = check.status;
         intent.error = check.error;
+        await saveIntent(svc.store, intent);
+      } else if (svc.now() - (intent.submittedAt ?? 0) > NEVER_LANDED_MS && intent.expiresAt > svc.now()) {
+        // Nothing on chain: a bogus or dropped signature. Let the owner sign again.
+        intent.status = "awaiting_signature";
+        intent.signature = undefined;
+        intent.error = "the last signature never landed on Solana";
         await saveIntent(svc.store, intent);
       }
     }
@@ -105,6 +104,8 @@ export async function tradeApi(svc: Services, request: Request, url: URL): Promi
     if (typeof body.signature !== "string" || !SIGNATURE.test(body.signature)) return json({ error: "That isn't a transaction signature." }, 400);
     intent.status = "submitted";
     intent.signature = body.signature;
+    intent.submittedAt = svc.now();
+    intent.error = undefined;
     await saveIntent(svc.store, intent);
     return json(view(intent));
   }

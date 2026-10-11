@@ -28,6 +28,9 @@ Where we could only read a requirement second-hand (the docs site was unreachabl
   both, or how long a spoken result should be. That decides how a voice-first tool should be written.
 - **Workaround:** every tool returns one or two speakable sentences plus structured data.
 - **Would help:** a short "writing tool results for voice" guide, and whether Echo Show can render structured results.
+- **What we did for screens:** shipped MCP Apps `ui://` cards (the open MCP extension other hosts already render),
+  since we couldn't find whether Alexa+ supports MCP Apps or has its own visual format. A one-line answer in the docs
+  would decide this for every add-on.
 
 ### 4. Pre-registered clients only (no DCR / Client ID Metadata Documents)
 
@@ -52,3 +55,12 @@ Where we could only read a requirement second-hand (the docs site was unreachabl
 - **Workaround:** the authorize page asks the wallet to sign a plain-text message (Sign-In With Solana style) bound to
   the request's nonce, then issues a normal authorization code.
 - **Would help:** an acknowledged pattern or sample for non-password identity in account linking.
+
+### 7. No guidance on background work for MCP add-ons
+
+- **Friction:** alerts are only useful if something watches the market while the user sleeps, but an MCP server only
+  runs when Alexa calls it, and there's no Alexa+ way (that we found) for an add-on to schedule work or notify the
+  user proactively.
+- **Workaround:** a tape recorder on a timer (or a cron-called endpoint for serverless) stamps alerts when they fire,
+  and the next briefing reports them with the time.
+- **Would help:** proactive notifications for MCP add-ons, even a single "you have an update from Afterhours" chime.

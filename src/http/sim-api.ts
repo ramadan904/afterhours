@@ -5,6 +5,7 @@
  */
 
 import type { Services } from "../services.js";
+import { RateLimit } from "./limit.js";
 import { McpSession, bedrockConfigured, bedrockTurn, scriptedTurn, type HistoryItem } from "../sim/planner.js";
 
 const json = (body: unknown, status = 200) =>
@@ -16,7 +17,11 @@ export function setSimulatorFetch(f: typeof fetch | undefined) {
   loopback = f;
 }
 
+/** Each turn may run a Bedrock model, so turns are rate-limited per client. */
+const turnLimit = new RateLimit(30, 60_000);
+
 export async function simulatorTurn(svc: Services, request: Request): Promise<Response> {
+  if (turnLimit.exceeded(request)) return json({ error: "That's a lot of questions. Give it a minute." }, 429);
   const body = (await request.json().catch(() => ({}))) as { utterance?: unknown; history?: unknown };
   const utterance = typeof body.utterance === "string" ? body.utterance.trim().slice(0, 300) : "";
   if (!utterance) return json({ error: "Say something first." }, 400);

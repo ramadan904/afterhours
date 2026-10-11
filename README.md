@@ -33,6 +33,8 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | **Account linking** | OAuth 2.1 authorization code + **PKCE (S256)**. RFC 9728 protected-resource metadata, RFC 8414 server metadata, `resource` bound to the MCP URI, rotating refresh tokens, and a bare `401` for unauthenticated MCP calls, all as Alexa+'s MCP onboarding asks. You link a **Solana wallet by signing a message** (free, can't move funds), or link a watch-only address. |
 | **Live data** | Token and share prices from Jupiter (one keyless call returns both legs), balances from Solana mainnet RPC. Prices are served from a stale-while-revalidate cache, so tool calls stay well inside Alexa+'s **500 ms** budget. |
 | **Trade confirm page** | `/go`: enter the code, get a fresh Jupiter quote, sign in any Wallet Standard wallet (Phantom, Solflare, Backpack, and others). Afterhours only reports a trade as confirmed once Solana shows it succeeded **and the linked wallet paid for it**. Status flows back to Alexa ("did my trade go through?"). |
+| **Overnight tape** | The board is sampled every 5 minutes into a rolling 48-hour tape, and every account's alerts are checked on each sample. Briefings say *when* an alert went off ("went off at 2:14 a.m. Eastern, when it was up 2.3 percent"), and `check_stock` tells the night's story ("since Friday's close it peaked at up 5.6 percent on Saturday around 10:30 a.m., and has faded since"). |
+| **Cards for screens** | The brief, stock, portfolio and trade tools declare **MCP Apps** `ui://` cards, so hosts with a screen (Echo Show, Fire TV, any MCP Apps client) show a visual card next to the spoken answer. These are dependency-free HTML views that follow the host's theme; the trade card has the code, a QR and a "Review and sign" link. |
 | **Alexa+ simulator** | `/sim/`: Alexa+'s MCP client is partner-gated, so this page plays its part. It runs the real OAuth flow, then voice in, voice out, with a live trace of every MCP call and its latency. The planner is **Claude on Amazon Bedrock** when AWS credentials are present, otherwise a deterministic intent matcher. |
 | **Conformance check** | `npm run conformance -- <url>` checks a deployment against the Alexa+ requirements and measures p50/p95 latency over the network. |
 
@@ -76,7 +78,7 @@ cp .env.example .env    # set AUTH_SECRET at minimum
 npm run dev
 ```
 
-Tests (69, no network needed): `npm test`. They cover the OAuth flow, every tool, the live Jupiter/Solana path against faithful fakes, and the on-chain payer check. Conformance against any deployment: `npm run conformance -- https://your-host`.
+Tests (93, no network needed): `npm test`. They cover the OAuth flow, every tool, the MCP Apps cards, the overnight tape, the live Jupiter/Solana path against faithful fakes, the on-chain payer check, the security fixes, and a compile check of every inline script. Conformance against any deployment: `npm run conformance -- https://your-host`.
 
 ### Connect it to an MCP client
 
@@ -98,7 +100,9 @@ On App Runner: push the image to ECR, create a service on port 8080 in `us-east-
 vars above. Give the instance role `bedrock:InvokeModel` if you want the simulator to use the Bedrock planner.
 
 **Vercel.** `vercel deploy` works as is (`api/index.ts` + `vercel.json`). Add an Upstash Redis integration so OAuth
-codes, alerts and trade proposals are shared across function instances.
+codes, alerts, the tape and trade proposals are shared across function instances. Serverless has no timer for the
+overnight tape: set `CRON_SECRET`, then add repository secrets `AFTERHOURS_URL` and `CRON_SECRET` so the included
+`Overnight tape` GitHub Actions workflow calls `/api/cron/tape` every 5 minutes.
 
 ## How it fits together
 
@@ -113,13 +117,18 @@ codes, alerts and trade proposals are shared across function instances.
 ```
 
 - `src/market/`: universe and voice aliases, NYSE calendar and sessions, gap logic, speech phrasing, price sources and cache
-- `src/mcp/tools.ts`: the 9 tools
+- `src/mcp/tools.ts`: the 9 tools · `src/mcp/apps.ts`: MCP Apps cards
+- `src/market/tape.ts`: the overnight tape · `src/market/alerts.ts`: alerts that fire with timestamps
 - `src/auth/`: OAuth 2.1 server, signed tokens, wallet signature verification
 - `src/chain/`: Solana balances, trade proposals, Jupiter swap client
 - `src/http/`: router, pages (link, confirm, landing), simulator, trade API
 - `src/sim/planner.ts`: Bedrock (Claude) and scripted planners (with follow-ups like "what about Nvidia?"), MCP client
 
 Recording the demo? See [DEMO.md](DEMO.md) for a timed script.
+
+## Security
+
+Afterhours holds no keys and can't sign. See [SECURITY.md](SECURITY.md) for the threat model.
 
 ## Honest limits
 

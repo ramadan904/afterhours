@@ -32,10 +32,14 @@ export function servicesFromEnv(env: NodeJS.ProcessEnv = process.env): Services 
   const rpcUrl = env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
   const jupiter = env.JUPITER_ENDPOINT ?? "https://lite-api.jup.ag";
 
+  // Anything served over HTTPS is a deployment someone can reach: it must
+  // have its own signing key, and it must not run with auth switched off.
+  const deployed = env.NODE_ENV === "production" || baseUrl.startsWith("https://");
   const secret = env.AUTH_SECRET ?? "";
-  if (secret.length < 32 && env.NODE_ENV === "production") {
-    throw new Error("AUTH_SECRET must be set to at least 32 characters in production.");
+  if (deployed && secret.length < 32) {
+    throw new Error("AUTH_SECRET must be set to at least 32 random characters on a deployed server.");
   }
+  if (deployed && env.AUTH === "off") throw new Error("AUTH=off is for local development only.");
 
   return {
     baseUrl,

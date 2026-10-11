@@ -36,6 +36,7 @@ export interface TradeIntent {
   expiresAt: number;
   status: TradeStatus;
   signature?: string;
+  submittedAt?: number;
   error?: string;
 }
 

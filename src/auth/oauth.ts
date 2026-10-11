@@ -20,7 +20,7 @@
  * address, and nothing else about them is stored.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { Services } from "../services.js";
 import { randomToken, sign, verify } from "./tokens.js";
 import { isAddress, linkMessage, verifyWalletSignature } from "./wallet.js";
@@ -256,11 +256,13 @@ export async function authorizePost(svc: Services, form: URLSearchParams): Promi
     if (!isAddress(address)) return errorPage("That isn't a valid Solana address.", 400);
     // Watch-only: balances are public, and a proposed trade can still only be
     // signed by this address's own wallet. Kept distinct from a verified link.
-    sub = `watch:${address}`;
+    // Each watch-only link is its own account: anyone can watch any address,
+    // so two people watching the same one must not share alerts or proposals.
+    sub = `watch:${address}:${randomToken(8)}`;
     wallet = address;
     verified = false;
   } else if (mode === "sample" && svc.sample) {
-    sub = "sample";
+    sub = `sample:${randomToken(8)}`;
     wallet = "SampLeWa11et1111111111111111111111111111111";
     verified = false;
   } else {
@@ -286,6 +288,12 @@ export async function authorizePost(svc: Services, form: URLSearchParams): Promi
   to.searchParams.set("iss", svc.baseUrl);
   // 303: the browser follows a POST with a GET to the client's redirect URI.
   return new Response(null, { status: 303, headers: { location: to.toString(), "cache-control": "no-store" } });
+}
+
+function sameSecret(given: string, expected: string): boolean {
+  const a = createHash("sha256").update(given).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
 }
 
 function clientCredentials(request: Request, form: URLSearchParams): { id: string | null; secret: string | null } {
@@ -324,7 +332,7 @@ export async function token(svc: Services, request: Request): Promise<Response> 
   const creds = clientCredentials(request, form);
   const client = clientsFromEnv(svc).find((c) => c.client_id === creds.id);
   if (!client) return oauthError("invalid_client", "Unknown client", 401);
-  if (client.client_secret && creds.secret !== client.client_secret) {
+  if (client.client_secret && !sameSecret(creds.secret ?? "", client.client_secret)) {
     return oauthError("invalid_client", "Client authentication failed", 401);
   }
 

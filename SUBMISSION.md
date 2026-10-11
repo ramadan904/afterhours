@@ -50,6 +50,12 @@ amount, or a TV talking in the background, can't move money. **Voice proposes, w
   confirm page builds a Jupiter swap for the *linked* wallet only, and the user's wallet signs and sends it through the
   Wallet Standard (no Solana library or CDN script on the page). A trade is reported confirmed only after Solana shows
   it succeeded *and* the linked wallet paid for it, so a reported signature alone proves nothing.
+- **Overnight tape:** the board is sampled every 5 minutes; alerts are checked on every sample and stamped when they
+  first cross, so the morning briefing can say "your Tesla alert went off at 2:14 a.m." even if the move has faded,
+  and a stock check tells the night's story (peak, when, and whether it faded).
+- **Cards for screens (MCP Apps):** the visual tools declare `ui://` cards (`text/html;profile=mcp-app`), so Echo Show
+  or any MCP Apps host can show a card beside the spoken answer. The trade card carries the code, a QR and a
+  "Review and sign" link.
 - **Alexa+ simulator:** Alexa+'s MCP client is partner-gated, so `/sim/` stands in for it. It runs the real OAuth
   flow, sends speech (Web Speech API) to a planner, calls the MCP endpoint with the linked token, and speaks the
   reply, showing every tool call with its latency. The planner is **Claude on Amazon Bedrock** (tools taken from the

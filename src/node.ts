@@ -10,6 +10,8 @@ import { SAMPLE_EVERY_MS, recordTape, seedSampleTape } from "./market/tape.js";
 const svc = servicesFromEnv();
 const app = createApp(svc);
 const port = Number(process.env.PORT ?? 8787);
+/** No request here needs more than a few kilobytes. */
+const MAX_BODY_BYTES = 1024 * 1024;
 
 // A long-running process can keep the price cache warm, so even the first
 // voice request after a quiet spell is served from memory.
@@ -24,7 +26,16 @@ setInterval(sample, SAMPLE_EVERY_MS).unref();
 
 createServer(async (req, res) => {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
+  let size = 0;
+  for await (const c of req) {
+    size += (c as Buffer).length;
+    if (size > MAX_BODY_BYTES) {
+      res.writeHead(413, { "content-type": "application/json" }).end('{"error":"payload_too_large"}');
+      req.destroy();
+      return;
+    }
+    chunks.push(c as Buffer);
+  }
   const body = chunks.length ? Buffer.concat(chunks) : undefined;
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
