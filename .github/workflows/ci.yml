@@ -31,6 +31,9 @@ jobs:
       - run: node dist/src/node.js & sleep 4
       - run: curl -sf localhost:8787/health | tee health.json
       - run: npx tsx scripts/conformance.ts http://localhost:8787
+      # Public history sources are unofficial; show what they return, don't fail on them.
+      - run: npx tsx scripts/track-record.ts TSLA NVDA COIN
+        continue-on-error: true
   infra:
     runs-on: ubuntu-latest
     steps:

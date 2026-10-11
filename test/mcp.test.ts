@@ -27,7 +27,7 @@ describe("MCP over Streamable HTTP", () => {
     const tools = await session.tools();
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
     expect(Object.keys(byName).sort()).toEqual(
-      ["cancel_trade", "check_stock", "explain", "list_alerts", "market_status", "my_portfolio", "overnight_brief", "propose_trade", "remove_alert", "set_alert", "set_timezone", "trade_status"].sort(),
+      ["cancel_trade", "check_stock", "explain", "list_alerts", "market_status", "my_portfolio", "open_track_record", "overnight_brief", "propose_trade", "remove_alert", "set_alert", "set_timezone", "trade_status"].sort(),
     );
     for (const name of ["explain", "market_status", "overnight_brief", "check_stock", "my_portfolio", "list_alerts", "trade_status"]) {
       expect(byName[name].annotations?.readOnlyHint, name).toBe(true);
@@ -57,7 +57,7 @@ describe("MCP over Streamable HTTP", () => {
     const { session } = await linked();
     const step = await session.call("check_stock", { stock: "the Tesla token" });
     expect(step.text).toBe(
-      "Using sample data. Tesla's token is up 2.1 percent since Friday's close, at $370.56. With the share market shut, that's a bet on the open tomorrow, not a hedge.",
+      "Using sample data. Tesla's token is up 2.1 percent since Friday's close, at $370.56. With the share market shut, that's a bet on the open tomorrow, not a hedge. Its token has called the open's direction 16 of the last 20 times.",
     );
     const apple = await session.call("check_stock", { stock: "AAPL" });
     expect(apple.text).toContain("Apple's token is down 1.4 percent");

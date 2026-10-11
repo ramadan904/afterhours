@@ -29,6 +29,7 @@ import { alertNews, isPriceAlert, listAlerts, removeAlert, upsertAlert, MAX_ALER
 import { overnightRange, readTape, type OvernightRange } from "../market/tape.js";
 import { armIntent, createIntent, getIntent, intentByCode, maxTradeUsd, recentlyTriggered, saveIntent, type TradeIntent } from "../chain/trade.js";
 import { listSubscriptions } from "../notify/push.js";
+import { readOpens, sampleOpens, trackRecord, type OpenRecord } from "../market/history.js";
 import { EASTERN, getZone, resolveZone, setZone, zoneName, type Zone } from "../market/zones.js";
 
 export interface Caller {
@@ -78,6 +79,18 @@ export const EXPLAIN = {
   what_you_can_do:
     "Ask me what happened overnight, how a stock like Tesla is doing, or how your portfolio did since the close. I can watch a stock for a percent move or a price and tell you when it went off, and I can prepare a trade for you to sign in your wallet, now or when a price is reached. Tell me where you are, and I'll give you times in your own time zone.",
 } as const;
+
+/** The open history for a name: sample records with sample data, stored ones otherwise. */
+async function opensFor(svc: Services, ticker: string): Promise<OpenRecord[]> {
+  return svc.sample ? sampleOpens(ticker, svc.now()) : readOpens(svc, ticker);
+}
+
+/** "Its token has called the open's direction 12 of the last 14 times." */
+export function trackClause(records: OpenRecord[]): string | null {
+  const t = trackRecord(records);
+  if (t.calls < 5) return null;
+  return `Its token has called the open's direction ${t.sameDirection} of the last ${t.calls} times.`;
+}
 
 /** "Tesla's", "the S&P 500 fund's". */
 function possessiveName(spoken: string): string {
@@ -279,6 +292,53 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       return fail(err instanceof Error ? err.message : "Something went wrong.");
     }
   };
+
+  server.registerTool(
+    "open_track_record",
+    {
+      title: "How well the overnight move predicts the open",
+      description:
+        "For one stock, over roughly the last month of market opens: how often the token's overnight move (where it traded at 9 a.m. Eastern) pointed the way the real share then opened, and how close it usually was. Built from public on-chain and exchange history, refreshed daily. Use for 'does the weekend move usually hold?', 'can I trust the Tesla token overnight?', 'how accurate is the overnight price?'.",
+      inputSchema: { stock: z.string().min(1).describe("Company name or ticker as the user said it.") },
+      outputSchema: {
+        dataSource: z.enum(["history", "sample"]),
+        ticker: z.string(),
+        opens: z.number(),
+        calls: z.number(),
+        sameDirection: z.number(),
+        medianMissPercent: z.number(),
+        from: z.string().nullable(),
+        to: z.string().nullable(),
+        recent: z.array(z.object({ date: z.string(), overnightPercent: z.number(), openPercent: z.number() })),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ stock }) =>
+      guard(async () => {
+        const listing = resolveSymbol(stock);
+        if (!listing) return unknownStock(stock);
+        const records = await opensFor(svc, listing.ticker);
+        const t = trackRecord(records);
+        if (t.calls < 5) {
+          return fail(`I don't have enough history for ${listing.spoken} yet. It builds from public market data once a day.`);
+        }
+        const hit = t.sameDirection / t.calls;
+        const verdict =
+          hit >= 0.75 ? "So far the overnight move has been a decent guide to the open." : hit >= 0.55 ? "So it's a hint, not a promise." : "So treat the overnight move with real caution.";
+        const text = `${svc.sample ? "Using sample data. " : ""}Over the last ${t.opens} market opens, ${possessiveName(listing.spoken)} token moved meaningfully overnight ${t.calls} times, and the share opened the same way ${t.sameDirection} of them, typically within ${pct(t.medianMissBps)} of where the token pointed. ${verdict}`;
+        return say(text, {
+          dataSource: svc.sample ? "sample" : "history",
+          ticker: listing.ticker,
+          opens: t.opens,
+          calls: t.calls,
+          sameDirection: t.sameDirection,
+          medianMissPercent: t.medianMissBps / 100,
+          from: t.from,
+          to: t.to,
+          recent: records.slice(-5).map((r) => ({ date: r.date, overnightPercent: r.overnightBps / 100, openPercent: r.openBps / 100 })),
+        });
+      }),
+  );
 
   server.registerTool(
     "set_timezone",
@@ -489,7 +549,8 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           r.kind === "overnight_move" || r.kind === "in_line"
             ? overnightRange(await readTape(svc), r.ticker, r.closedAt ?? now - 16 * 3600_000)
             : null;
-        return say([sampleNote(board) + gapSentence(r), rangeSentence(r, range, now, zone), verdict].filter(Boolean).join(" "), {
+        const track = r.kind === "overnight_move" ? trackClause(await opensFor(svc, r.ticker)) : null;
+        return say([sampleNote(board) + gapSentence(r), rangeSentence(r, range, now, zone), verdict, track].filter(Boolean).join(" "), {
           dataSource: board.source,
           ...readingOut(r),
           verdict,

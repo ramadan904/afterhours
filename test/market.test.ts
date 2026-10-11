@@ -151,6 +151,7 @@ describe("scripted planner", () => {
     ["Buy 50 dollars of Tesla if it drops below 360", "propose_trade", { stock: "tesla", side: "buy", amount_usd: 50, trigger_price: 360 }],
     ["Sell 100 dollars of Nvidia when it hits $250", "propose_trade", { stock: "nvidia", side: "sell", amount_usd: 100, trigger_price: 250 }],
     ["Cancel my order", "cancel_trade", {}],
+    ["Does the weekend move usually hold for Tesla?", "open_track_record", { stock: "tesla" }],
     ["I'm in Lagos", "set_timezone", { place: "lagos" }],
     ["Set my time zone to Tokyo", "set_timezone", { place: "tokyo" }],
     ["Use London time", "set_timezone", { place: "london" }],

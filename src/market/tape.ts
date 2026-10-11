@@ -25,6 +25,7 @@ import { notify } from "../notify/push.js";
 import { alertNotice, triggeredTradeNotice } from "../notify/notices.js";
 import { triggerArmed } from "../chain/trade.js";
 import { getZone } from "./zones.js";
+import { refreshOpenHistoryIfStale } from "./history.js";
 
 export interface TapePoint {
   /** Unix ms. */
@@ -68,6 +69,9 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   const prices = new Map(readings.map((r) => [r.ticker, r.tokenPrice]));
   const triggered = await triggerArmed(svc.store, prices, now);
   await Promise.all(triggered.map((t) => send(t.sub, (zone) => triggeredTradeNotice(t, svc.baseUrl, zone))));
+
+  // Once a day, rebuild the open track record from public history (background).
+  void refreshOpenHistoryIfStale(svc).catch(() => false);
 
   const tape = await readTape(svc);
   const last = tape.at(-1);
