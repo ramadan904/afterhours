@@ -60,16 +60,28 @@ export function errorPage(message: string, status = 400): Response {
   return new Response(res.body, { status, headers: res.headers });
 }
 
-/** Shared browser helper: find an injected Solana wallet. */
+/**
+ * Shared browser helper: Solana wallets via the Wallet Standard.
+ *
+ * Phantom, Solflare, Backpack and other modern wallets register themselves
+ * through the Wallet Standard events, and its features take raw bytes: a
+ * message to sign, or a serialized transaction to sign and send. So the pages
+ * need no Solana library at all, and nothing is loaded from a CDN.
+ */
 const WALLET_JS = `
-function wallets(){const out=[];const w=window;
- if(w.phantom&&w.phantom.solana)out.push(["Phantom",w.phantom.solana]);
- else if(w.solana&&w.solana.isPhantom)out.push(["Phantom",w.solana]);
- if(w.solflare)out.push(["Solflare",w.solflare]);
- if(w.backpack&&w.backpack.solana)out.push(["Backpack",w.backpack.solana]);
- return out}
-async function connectWallet(p){const r=await p.connect();const pk=(r&&r.publicKey)||p.publicKey;return pk.toString()}
+const FOUND=[];let onWallets=()=>{};
+function register(...ws){for(const w of ws){if(!FOUND.includes(w)&&(w.chains||[]).some(c=>c.startsWith("solana:"))&&w.features&&w.features["standard:connect"]){FOUND.push(w)}}onWallets();return()=>{}}
+window.addEventListener("wallet-standard:register-wallet",e=>{try{e.detail({register})}catch{}});
+window.dispatchEvent(new CustomEvent("wallet-standard:app-ready",{detail:{register}}));
+function wallets(){return FOUND.map(w=>[w.name,w])}
+async function connectWallet(w){const r=await w.features["standard:connect"].connect();const account=(r&&r.accounts&&r.accounts[0])||w.accounts[0];if(!account)throw new Error("The wallet didn't share an account.");return {account,address:account.address}}
+async function signText(w,account,bytes){const f=w.features["solana:signMessage"];if(!f)throw new Error(w.name+" can't sign messages.");const [out]=await f.signMessage({account,message:bytes});return out.signature}
+async function signAndSend(w,account,tx){const f=w.features["solana:signAndSendTransaction"];if(!f)throw new Error(w.name+" can't send transactions.");const [out]=await f.signAndSendTransaction({account,transaction:tx,chain:"solana:mainnet"});return b58(out.signature)}
 function b64(bytes){let s="";bytes.forEach(b=>s+=String.fromCharCode(b));return btoa(s)}
+function fromB64(s){return Uint8Array.from(atob(s),c=>c.charCodeAt(0))}
+function b58(bytes){const A="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";let d=[],out="";
+ for(const byte of bytes){let carry=byte;for(let j=0;j<d.length;j++){carry+=d[j]<<8;d[j]=carry%58;carry=carry/58|0}while(carry){d.push(carry%58);carry=carry/58|0}}
+ for(const byte of bytes){if(byte!==0)break;out+="1"}for(let k=d.length-1;k>=0;k--)out+=A[d[k]];return out}
 `;
 
 export function authorizePage(p: {
@@ -118,13 +130,12 @@ const CFG=${cfg.replace(/</g, "\\u003c")};
 function message(address){return [CFG.host+" wants you to link your Solana account to Alexa:",address,"","Afterhours can read your tokenized stock balances. It can never move funds: every trade needs your signature in this wallet.","","URI: "+CFG.uri,"Version: 1","Chain ID: mainnet","Nonce: "+CFG.nonce,"Issued At: "+CFG.issuedAt,"Expiration Time: "+CFG.expiresAt].join("\\n")}
 function render(){const box=document.getElementById("walletButtons");box.innerHTML="";const found=wallets();
  document.getElementById("noWallet").hidden=found.length>0;
- for(const [name,p] of found){const b=document.createElement("button");b.className="primary";b.textContent="Sign in with "+name;b.onclick=()=>link(p,b);box.appendChild(b)}}
-async function link(p,b){const err=document.getElementById("walletError");err.textContent="";b.disabled=true;
- try{const address=await connectWallet(p);const msg=message(address);const out=await p.signMessage(new TextEncoder().encode(msg),"utf8");
-  const sig=out&&out.signature?out.signature:out;const f=document.getElementById("signed");
-  f.address.value=address;f.message.value=msg;f.signature.value=b64(new Uint8Array(sig));f.submit()}
+ for(const [name,w] of found){const b=document.createElement("button");b.className="primary";b.textContent="Sign in with "+name;b.onclick=()=>link(w,b);box.appendChild(b)}}
+async function link(w,b){const err=document.getElementById("walletError");err.textContent="";b.disabled=true;
+ try{const {account,address}=await connectWallet(w);const msg=message(address);const sig=await signText(w,account,new TextEncoder().encode(msg));
+  const f=document.getElementById("signed");f.address.value=address;f.message.value=msg;f.signature.value=b64(new Uint8Array(sig));f.submit()}
  catch(e){err.textContent=(e&&e.message)||"The wallet didn't sign. Nothing was shared.";b.disabled=false}}
-render();setTimeout(render,600);`;
+onWallets=render;render();setTimeout(render,800);`;
   return layout("Link Afterhours", body, { script });
 }
 
@@ -173,31 +184,30 @@ export function confirmPage(p: { code: string }): Response {
 const $=id=>document.getElementById(id);let current=null;
 const money=n=>"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const short=a=>a.slice(0,4)+"…"+a.slice(-4);
-const STATUS={awaiting_signature:"Waiting for your signature",submitted:"Sent, confirming…",confirmed:"Confirmed on Solana",failed:"Failed — nothing filled",expired:"Expired"};
+const STATUS={awaiting_signature:"Waiting for your signature",submitted:"Sent, confirming…",confirmed:"Confirmed on Solana",failed:"Not confirmed",expired:"Expired"};
 async function api(path,body){const r=await fetch(path,body?{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}:{});const j=await r.json().catch(()=>({error:"Bad response"}));if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
 function show(i){current=i;$("intent").hidden=false;$("title").textContent=(i.side==="buy"?"Buy ":"Sell ")+money(i.usd)+" of "+i.token;
  $("status").textContent=STATUS[i.status]||i.status;
  $("facts").innerHTML="<dt>Wallet</dt><dd class=mono>"+short(i.wallet)+"</dd><dt>Price when asked</dt><dd>"+money(i.priceAtProposal)+"</dd><dt>Pays with</dt><dd>"+(i.side==="buy"?"USDC":i.token)+"</dd><dt>Expires</dt><dd>"+new Date(i.expiresAt).toLocaleTimeString()+"</dd>"+(i.signature?"<dt>Transaction</dt><dd><a href='https://solscan.io/tx/"+i.signature+"' target=_blank rel=noopener>"+short(i.signature)+"</a></dd>":"");
  const a=$("actions");a.innerHTML="";
  if(i.status==="awaiting_signature"){const found=wallets();if(!found.length){$("msg").textContent="Open this page in a Solana wallet's browser (Phantom, Solflare or Backpack) to sign."}
-  for(const [name,p] of found){const b=document.createElement("button");b.className="primary";b.textContent="Review & sign with "+name;b.onclick=()=>sign(p,b);a.appendChild(b)}
+  for(const [name,w] of found){const b=document.createElement("button");b.className="primary";b.textContent="Review & sign with "+name;b.onclick=()=>sign(w,b);a.appendChild(b)}
   const c=document.createElement("button");c.textContent="Cancel";c.onclick=cancel;a.appendChild(c)}
+ if(i.status==="failed")$("msg").textContent=i.error?"Not confirmed: "+i.error+".":"The swap failed. Nothing was filled.";
+ if(i.status==="confirmed")$("msg").textContent="Done. Alexa can tell you it went through.";
  if(i.status==="submitted")setTimeout(poll,2500)}
 async function lookup(e){e&&e.preventDefault();$("lookupErr").textContent="";const code=$("code").value.replace(/\\D/g,"");
  try{show(await api("/api/trade?code="+code))}catch(err){$("lookupErr").textContent=err.message}}
-async function sign(p,b){b.disabled=true;$("msg").textContent="Connecting…";
- try{const addr=await connectWallet(p);if(addr!==current.wallet)throw new Error("This is "+short(addr)+". The trade was proposed for "+short(current.wallet)+": switch accounts in your wallet.");
+async function sign(w,b){b.disabled=true;$("msg").textContent="Connecting…";
+ try{const {account,address:addr}=await connectWallet(w);if(addr!==current.wallet)throw new Error("This is "+short(addr)+". The trade was proposed for "+short(current.wallet)+": switch accounts in your wallet.");
   $("msg").textContent="Getting a fresh quote…";const built=await api("/api/trade/build",{code:current.code});
   $("quote").textContent="Fresh quote: you pay "+built.pay+" and receive about "+built.receive+" (price impact "+built.impact+", max slippage "+built.slippage+").";
-  $("msg").textContent="Approve it in your wallet…";const tx=solanaWeb3.VersionedTransaction.deserialize(Uint8Array.from(atob(built.transaction),c=>c.charCodeAt(0)));
-  const out=await p.signAndSendTransaction(tx);const sig=out.signature||out;
-  show(await api("/api/trade/submitted",{code:current.code,signature:typeof sig==="string"?sig:solanaWeb3.bs58?solanaWeb3.bs58.encode(sig):sig}));$("msg").textContent="Sent. Waiting for Solana to confirm…"}
+  $("msg").textContent="Approve it in your wallet…";const sig=await signAndSend(w,account,fromB64(built.transaction));
+  show(await api("/api/trade/submitted",{code:current.code,signature:sig}));$("msg").textContent="Sent. Waiting for Solana to confirm…"}
  catch(e){$("msg").textContent=(e&&e.message)||"Not signed. Nothing was sent.";b.disabled=false}}
 async function cancel(){try{show(await api("/api/trade/cancel",{code:current.code}));$("msg").textContent="Cancelled."}catch(e){$("msg").textContent=e.message}}
 async function poll(){try{show(await api("/api/trade?code="+current.code))}catch{}}
+onWallets=()=>{if(current)show(current)};
 $("lookup").addEventListener("submit",lookup);if($("code").value)lookup();`;
-  return layout("Confirm a trade · Afterhours", body, {
-    script,
-    head: `<script src="https://unpkg.com/@solana/web3.js@1.98.0/lib/index.iife.min.js" crossorigin="anonymous"></script>`,
-  });
+  return layout("Confirm a trade · Afterhours", body, { script });
 }

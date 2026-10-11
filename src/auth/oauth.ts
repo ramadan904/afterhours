@@ -231,7 +231,8 @@ export async function authorizePost(svc: Services, form: URLSearchParams): Promi
   const address = form.get("address") ?? "";
 
   if (mode === "wallet") {
-    const message = form.get("message") ?? "";
+    // Browsers submit form fields with CRLF line breaks; the wallet signed LF.
+    const message = (form.get("message") ?? "").replace(/\r\n/g, "\n");
     const signature = form.get("signature") ?? "";
     const expected = linkMessage({
       host: new URL(svc.baseUrl).host,

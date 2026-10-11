@@ -501,7 +501,9 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           awaiting_signature: `${what} is waiting for your signature. The code is ${spokenCode(intent.code)}.`,
           submitted: `${what} was signed and sent. It's waiting for Solana to confirm it.`,
           confirmed: `${what} is confirmed on Solana.`,
-          failed: `${what} didn't go through. Nothing was filled.`,
+          failed: intent.error?.includes("linked wallet")
+            ? `${what} couldn't be confirmed: ${intent.error}.`
+            : `${what} didn't go through. Nothing was filled.`,
           expired: `${what} expired before it was signed, so nothing happened.`,
           cancelled: `${what} was cancelled, so nothing happened.`,
         };

@@ -7,7 +7,7 @@
  */
 
 import type { Services } from "../services.js";
-import { intentByCode, saveIntent, signatureStatus, swapLegs, type TradeIntent } from "../chain/trade.js";
+import { confirmOnChain, intentByCode, saveIntent, swapLegs, type TradeIntent } from "../chain/trade.js";
 import { USDC, listingByTicker } from "../market/universe.js";
 
 const json = (body: unknown, status = 200) =>
@@ -42,6 +42,7 @@ function view(i: TradeIntent) {
     wallet: i.wallet,
     expiresAt: new Date(i.expiresAt).toISOString(),
     signature: i.signature ?? null,
+    error: i.error ?? null,
   };
 }
 
@@ -61,9 +62,10 @@ export async function tradeApi(svc: Services, request: Request, url: URL): Promi
     const intent = await find(svc, url.searchParams.get("code"));
     if (intent instanceof Response) return intent;
     if (intent.status === "submitted" && intent.signature && !svc.sample) {
-      const status = await signatureStatus(svc.rpcUrl, intent.signature).catch(() => "pending" as const);
-      if (status !== "pending") {
-        intent.status = status;
+      const check = await confirmOnChain(svc.rpcUrl, intent.signature, intent.wallet).catch(() => ({ status: "pending" as const, error: undefined }));
+      if (check.status !== "pending") {
+        intent.status = check.status;
+        intent.error = check.error;
         await saveIntent(svc.store, intent);
       }
     }

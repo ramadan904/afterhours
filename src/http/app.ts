@@ -24,6 +24,7 @@ import { confirmPage, errorPage, landingPage } from "./pages.js";
 import { simulatorPage } from "./simulator.js";
 import { tradeApi } from "./trade-api.js";
 import { simulatorTurn } from "./sim-api.js";
+import { qrSvg } from "./qr.js";
 
 export const VERSION = "0.1.0";
 const REPO_URL = process.env.REPO_URL ?? "https://github.com/ramadan904/afterhours";
@@ -130,6 +131,7 @@ export function createApp(svc: Services) {
       if (path === "/go" && method === "GET") return confirmPage({ code: url.searchParams.get("code") ?? "" });
       if (path.startsWith("/api/trade")) return await tradeApi(svc, request, url);
 
+      if (path === "/qr.svg" && method === "GET") return qrSvg(svc, url);
       if (path === "/sim") return Response.redirect(`${svc.baseUrl}/sim/${url.search}`, 301);
       if (path === "/sim/" && method === "GET") return simulatorPage({ baseUrl: svc.baseUrl, sample: svc.sample });
       if (path === "/sim/api/turn" && method === "POST") return await simulatorTurn(svc, request);

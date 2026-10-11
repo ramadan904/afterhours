@@ -130,7 +130,7 @@ function visual(step,reply){const d=step&&step.structured;const v=$("visual");if
  case "check_stock":v.innerHTML="<div class=label>"+escH(d.token)+" vs "+escH(d.comparedWith)+"</div><div class=big>"+usd(d.tokenPrice)+"</div><div class='hello "+((d.gapPercent||0)>=0?"pos":"neg")+"'>"+(d.gapPercent==null?"no reference":pct(d.gapPercent))+"<small>share "+(d.sharePrice?usd(d.sharePrice):"–")+" · "+escH(d.kind.replace("_"," "))+"</small></div>";break;
  case "my_portfolio":v.innerHTML="<div class=label>Portfolio"+(d.dataSource==="sample"?" · sample data":"")+"</div><div class=big>"+usd(d.totalUsd)+"</div><div class='"+(d.changeUsd>=0?"pos":"neg")+"'>"+(d.changeUsd>=0?"+":"−")+usd(Math.abs(d.changeUsd))+"</div>"+bars(d.positions.map(p=>({k:p.ticker+"x",v:p.changeUsd||0,t:usd(p.valueUsd)})));break;
  case "propose_trade":case "trade_status":{const url=d.confirmUrl;v.innerHTML="<div class=label>"+escH(d.side)+" "+usd(d.usd)+" of "+escH(d.ticker)+"x · "+escH(d.status.replace("_"," "))+"</div><div class=codebox><div><div class=digits>"+escH(d.code)+"</div><a href='"+escH(url)+"' target=_blank rel=noopener class=small>"+escH(url.replace(/^https?:\\/\\//,""))+"</a></div><div class=qr id=qr aria-label='QR code for the confirm page'></div></div>";
-  try{const q=qrcode(0,"M");q.addData(url);q.make();$("qr").innerHTML=q.createSvgTag({cellSize:4,margin:0})}catch{$("qr").hidden=true}break}
+  const qrPath=new URL(url).pathname+new URL(url).search;$("qr").innerHTML="<img alt='' src='/qr.svg?path="+encodeURIComponent(qrPath)+"'>";break}
  default:v.innerHTML="<div class=hello>"+escH(reply)+"</div>"}}
 function trace(turn){const t=$("trace");$("planner").textContent="planner: "+turn.planner+(turn.fallbackReason?" (fallback)":"");
  if(!turn.steps.length){t.innerHTML="<p class='small muted'>No tool call for that.</p>";return}
@@ -154,6 +154,6 @@ if(!SR){$("mic").hidden=true}else{const rec=new SR();rec.lang="en-US";rec.interi
 showAccount();finishLink();`;
   return layout("Alexa+ simulator · Afterhours", body, {
     script,
-    head: `<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script><style>${CSS}</style>`,
+    head: `<style>${CSS}</style>`,
   });
 }

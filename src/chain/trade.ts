@@ -157,30 +157,42 @@ export class JupiterSwap {
   }
 }
 
-/** Confirmation state of a signature, from Solana RPC. */
-export async function signatureStatus(
+/**
+ * Whether a submitted trade landed, read from Solana itself.
+ *
+ * The confirm page reports a signature, but a page can report anything. So a
+ * trade only counts as confirmed when the transaction exists on chain,
+ * succeeded, and was signed and paid for by the wallet the trade was proposed
+ * for (the fee payer is always the first account key).
+ */
+export async function confirmOnChain(
   rpcUrl: string,
   signature: string,
+  wallet: string,
   fetchImpl: typeof fetch = fetch,
-): Promise<"confirmed" | "failed" | "pending"> {
+): Promise<{ status: "confirmed" | "failed" | "pending"; error?: string }> {
   const res = await fetchImpl(rpcUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    signal: AbortSignal.timeout(3000),
+    signal: AbortSignal.timeout(4000),
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
-      method: "getSignatureStatuses",
-      params: [[signature], { searchTransactionHistory: true }],
+      method: "getTransaction",
+      params: [signature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }],
     }),
   });
   const body = (await res.json()) as {
-    result?: { value?: ({ err: unknown; confirmationStatus?: string } | null)[] };
+    result?: {
+      meta?: { err: unknown } | null;
+      transaction?: { message?: { accountKeys?: ({ pubkey: string; signer?: boolean } | string)[] } };
+    } | null;
   };
-  const status = body.result?.value?.[0];
-  if (!status) return "pending";
-  if (status.err) return "failed";
-  return status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized"
-    ? "confirmed"
-    : "pending";
+  const tx = body.result;
+  if (!tx) return { status: "pending" };
+  const first = tx.transaction?.message?.accountKeys?.[0];
+  const payer = typeof first === "string" ? first : first?.pubkey;
+  if (payer !== wallet) return { status: "failed", error: "that transaction wasn't signed by your linked wallet" };
+  if (tx.meta?.err) return { status: "failed", error: "the swap failed on chain" };
+  return { status: "confirmed" };
 }

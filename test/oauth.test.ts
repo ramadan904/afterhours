@@ -95,6 +95,21 @@ describe("authorization code + PKCE", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
+  it("accepts the signed message after a browser turns its line breaks into CRLF", async () => {
+    const { app } = harness();
+    const { request, cfg } = await openLinkPage(app, pkce().challenge);
+    const w = wallet();
+    const message = linkMessage({ host: cfg.host, address: w.address, nonce: cfg.nonce, issuedAt: cfg.issuedAt, expiresAt: cfg.expiresAt, uri: cfg.uri });
+    const res = await app(
+      new Request(`${BASE}/authorize`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ request, mode: "wallet", address: w.address, message: message.replace(/\n/g, "\r\n"), signature: w.sign(message), issuedAt: cfg.issuedAt, expiresAt: cfg.expiresAt }),
+      }),
+    );
+    expect(res.status).toBe(303);
+  });
+
   it("refuses a signature from a different wallet", async () => {
     const { app } = harness();
     const { request, cfg } = await openLinkPage(app, pkce().challenge);
