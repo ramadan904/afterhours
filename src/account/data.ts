@@ -12,7 +12,7 @@
 import type { Services } from "../services.js";
 import { getIntent, saveIntent, type TradeIntent } from "../chain/trade.js";
 
-const PER_ACCOUNT = ["activity", "alerts", "briefing", "guardrails", "pin", "prefs", "push", "recurring", "targets", "watch", "weekly", "walletsnap", "firedlog", "triggered", "latest-intent"];
+const PER_ACCOUNT = ["activity", "alerts", "briefing", "guardrails", "pin", "prefs", "push", "recurring", "targets", "watch", "weekly", "walletsnap", "firedlog", "triggered", "latest-intent", "sms", "smsotp", "smssent"];
 const INDEXES = ["alert-accounts", "briefing:index", "recurring:index", "push:index"];
 
 export async function exportData(svc: Services, sub: string): Promise<Record<string, unknown>> {
@@ -22,6 +22,8 @@ export async function exportData(svc: Services, sub: string): Promise<Record<str
     if (value === null || value === undefined) continue;
     if (name === "pin") out.pin = { set: true };
     else if (name === "push") out.push = { devices: Array.isArray(value) ? value.length : 0 };
+    else if (name === "smsotp" || name === "smssent") continue;
+    else if (name === "sms") out.sms = { phone: (value as { phone: string }).phone, verifiedAt: new Date((value as { verifiedAt: number }).verifiedAt).toISOString() };
     else out[name] = value;
   }
   const latest = out["latest-intent"];

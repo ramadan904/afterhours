@@ -5,6 +5,7 @@
  * the built-in offline board and portfolio. Answers built from it say so.
  */
 
+import type { SmsSender } from "./notify/sms.js";
 import { CachedPrices, JupiterPrices, SamplePrices, type PriceSource } from "./market/prices.js";
 import { RpcHoldings, SampleHoldings, type HoldingsSource } from "./chain/holdings.js";
 import { JupiterSwap } from "./chain/trade.js";
@@ -26,6 +27,8 @@ export interface Services {
   sample: boolean;
   /** Push delivery; the Web Push sender when unset. Tests inject a fake. */
   push?: PushSender;
+  /** SMS delivery; Amazon SNS when SMS=on. Tests inject a fake. */
+  sms?: SmsSender;
 }
 
 export function servicesFromEnv(env: NodeJS.ProcessEnv = process.env): Services {

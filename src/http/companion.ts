@@ -83,6 +83,10 @@ ${p.sample ? `<p class="small muted">This server runs on sample data; you can si
 <div class="row" style="margin-top:12px;gap:8px"><button class="small" id="exportData">Download my data (JSON)</button><button class="small" id="deleteData">Delete my data</button></div><p id="dataMsg" class="small muted" role="status"></p></section>
 <section class="sec" aria-labelledby="nTitle"><h2 id="nTitle">Notifications</h2><p id="pushText" class="muted" style="margin:0 0 10px">Get your alerts on this device the moment they go off, even at 2 a.m.</p>
 <div class="row"><button class="primary" id="pushOn" hidden>Turn on</button><button id="pushTest" hidden>Send a test</button><button id="pushOff" hidden>Turn off</button></div>
+<div id="smsBox" hidden><h3 style="margin:18px 0 6px;font-size:15px">Text messages</h3><p id="smsText" class="small muted" style="margin:0 0 8px">Get the same alerts by SMS, for phones without web push.</p>
+<form class="form" id="smsForm"><label class="sr-only" for="smsPhone">Phone number with country code</label><input id="smsPhone" type="tel" autocomplete="tel" placeholder="+1 415 555 0100"><button class="primary" type="submit">Text me a code</button></form>
+<form class="form" id="smsVerify" hidden><label class="sr-only" for="smsCode">Six-digit code</label><input id="smsCode" inputmode="numeric" maxlength="6" placeholder="123456"><button class="primary" type="submit">Verify</button></form>
+<button type="button" id="smsStop" hidden>Stop texts</button></div>
 <h3 style="margin:18px 0 6px;font-size:15px">Scheduled briefing</h3><p id="briefText" class="small muted" style="margin:0 0 8px">Your positions, watchlist and the biggest moves, sent at a time you pick.</p>
 <form class="form" id="briefForm"><label class="sr-only" for="bTime">Time</label><input id="bTime" type="time" required value="07:00">
 <label class="sr-only" for="bDays">Days</label><select id="bDays"><option value="weekdays">Weekdays</option><option value="daily">Every day</option><option value="weekends">Weekends</option></select>
@@ -171,6 +175,13 @@ async function loadWatch(){const r=await tool("my_watchlist");const host=$("watc
  for(const m of list){const x=document.createElement("button");x.className="small";x.textContent="× "+m.token;x.setAttribute("aria-label","Stop watching "+cap1(m.name));
   x.onclick=async()=>{x.disabled=true;const r=await tool("edit_watchlist",{remove:[m.ticker]});$("watchMsg").textContent=r.text;loadWatch()};edit.appendChild(x)}}
 $("watchForm").addEventListener("submit",async e=>{e.preventDefault();const r=await tool("edit_watchlist",{add:[$("wStock").value]});$("watchMsg").textContent=r.text;$("watchMsg").className="small "+(r.error?"err":"muted");loadWatch()});
+async function loadSms(){const r=await authedGet("/api/sms");if(!r.ok)return;const d=await r.json();$("smsBox").hidden=!d.available;
+ $("smsForm").hidden=Boolean(d.phone);$("smsStop").hidden=!d.phone;if(d.phone)$("smsText").textContent="Texts go to "+d.phone+"."}
+$("smsForm").addEventListener("submit",async e=>{e.preventDefault();const r=await authed("/api/sms/start",{phone:$("smsPhone").value});
+ $("smsText").textContent=r.error||("We texted a code to "+r.phone+".");if(!r.error){$("smsVerify").hidden=false;$("smsCode").focus()}});
+$("smsVerify").addEventListener("submit",async e=>{e.preventDefault();const r=await authed("/api/sms/verify",{code:$("smsCode").value});
+ if(r.error){$("smsText").textContent=r.error;return}$("smsVerify").hidden=true;loadSms()});
+$("smsStop").onclick=async()=>{await authed("/api/sms/stop",{});$("smsText").textContent="Texts are off.";loadSms()};
 async function loadBriefing(){const r=await tool("schedule_briefing",{});const d=r.data;if(!d)return;
  if(d.scheduled){$("bTime").value=d.time;$("bDays").value=d.days;$("briefText").textContent=r.text}$("briefOff").hidden=!d.scheduled}
 $("briefForm").addEventListener("submit",async e=>{e.preventDefault();const r=await tool("schedule_briefing",{time:$("bTime").value,days:$("bDays").value});$("briefText").textContent=r.text;$("briefOff").hidden=Boolean(r.error)});
@@ -236,7 +247,7 @@ $("pushOff").onclick=async()=>{const reg=await navigator.serviceWorker.ready;con
 async function show(){const t=st.get("ah_at");const c=t&&claims(t);$("out").hidden=Boolean(c);$("in").hidden=!c;$("who").hidden=!c;
  if(!c)return;$("whoText").textContent=(c.wallet?c.wallet.slice(0,4)+"…"+c.wallet.slice(-4):"")+(c.verified?" · signed":" · watch-only");
  const nm=u=>u.name.replace(/^the /,"");const opts=[...CFG.universe].sort((a,b)=>nm(a).localeCompare(nm(b))).map(u=>"<option value='"+u.ticker+"'>"+escH(nm(u))+" ("+u.token+")</option>").join("");$("aStock").innerHTML=opts;$("wStock").innerHTML=opts;$("rStock").innerHTML=opts;
- await Promise.all([loadStatus(),loadMovers(),loadPortfolio(),loadWatch(),loadAlerts(),loadBriefing(),loadPlans(),loadGuards(),loadActivity(),loadTrade(),pushState()]).catch(()=>{});
+ await Promise.all([loadStatus(),loadMovers(),loadPortfolio(),loadWatch(),loadAlerts(),loadBriefing(),loadPlans(),loadGuards(),loadActivity(),loadSms(),loadTrade(),pushState()]).catch(()=>{});
  const deep=location.hash.slice(1).toUpperCase();if(deep){const b=document.querySelector(".rowbtn[data-ticker='"+deep+"']");if(b){b.click();b.scrollIntoView({block:"center"})}}}
 $("signin").onclick=signin;$("signout").onclick=signout;
 finishSignin().then(show);`;

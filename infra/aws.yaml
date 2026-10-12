@@ -33,6 +33,11 @@ Parameters:
     Type: String
     Default: Ruth
     Description: Amazon Polly voice for the simulator (generative or neural, en-US), e.g. Ruth, Matthew, Danielle.
+  SmsAlerts:
+    Type: String
+    Default: "off"
+    AllowedValues: ["on", "off"]
+    Description: Send alerts by SMS through Amazon SNS too (needs SNS SMS set up and out of the sandbox).
   AlarmEmail:
     Type: String
     Default: ""
@@ -123,6 +128,10 @@ Resources:
               - Effect: Allow
                 Action: polly:SynthesizeSpeech
                 Resource: "*"
+              # Text alerts: SNS publishes straight to verified phone numbers.
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: "*"
               # Metrics are published to the Afterhours namespace only.
               - Effect: Allow
                 Action: cloudwatch:PutMetricData
@@ -165,6 +174,7 @@ Resources:
               - { Name: ALEXA_REDIRECT_URIS, Value: !Ref AlexaRedirectUris }
               - { Name: METRICS, Value: cloudwatch }
               - { Name: POLLY, Value: "on" }
+              - { Name: SMS, Value: !Ref SmsAlerts }
               - { Name: POLLY_VOICE, Value: !Ref PollyVoice }
             RuntimeEnvironmentSecrets:
               - { Name: AUTH_SECRET, Value: !Ref AuthSecret }

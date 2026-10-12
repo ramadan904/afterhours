@@ -26,7 +26,7 @@ import { rankByGap, readGap, NOISE_FLOOR_BPS, type GapReading } from "../market/
 import { MAX_WATCHED, editWatchlist, getWatchlist } from "../market/watchlist.js";
 import { valuePortfolio } from "../market/portfolio.js";
 import { DAYS_SPOKEN, getBriefing, parseTime, setBriefing, spokenTime, type BriefingDays } from "../notify/briefing.js";
-import { listSubscriptions } from "../notify/push.js";
+import { channelCount } from "../notify/push.js";
 import { aroundTime, capitalise, clockTime, gapSentence, move, pct, sessionSentence, usd, verdictSentence, nextOpenPhrase, whenSpoken } from "../market/speech.js";
 import { PriceSourceError, type Board } from "../market/prices.js";
 import { alertNews, isPriceAlert, listAlerts, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
@@ -819,7 +819,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
     async ({ time, days, off }) =>
       guard(async () => {
         const zone = await getZone(svc.store, caller.sub);
-        const devices = (await listSubscriptions(svc, caller.sub)).length;
+        const devices = await channelCount(svc, caller.sub);
         const out = (s: { minutes: number; days: BriefingDays } | null) => ({
           scheduled: Boolean(s),
           time: s ? `${String(Math.floor(s.minutes / 60)).padStart(2, "0")}:${String(s.minutes % 60).padStart(2, "0")}` : null,
@@ -969,7 +969,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           const until = nextLocal(now, zone, rules.sleep.to);
           const held = await armIntent(svc.store, base, { hold: { until, reason: "sleep" } }, now);
           await spend(held.id);
-          const devices = (await listSubscriptions(svc, caller.sub)).length;
+          const devices = await channelCount(svc, caller.sub);
           return say(
             `${sampleNote(board)}It's ${clockTime(now, zone)} ${zoneName(zone)} and sleep mode is on, so I've set this ${usd(amount_usd)} ${side} of ${listing.spoken} aside instead of preparing it now. It'll be ready to sign at ${clockTime(until, zone)}${devices ? ", and I'll send it to your phone" : ""}, if you still want it. To drop it, say cancel my order.`,
             intentOut(held, svc.baseUrl),
@@ -979,7 +979,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           const above = trigger_price > r.tokenPrice;
           const armed = await armIntent(svc.store, base, { price: trigger_price, above }, now);
           await spend(armed.id);
-          const devices = (await listSubscriptions(svc, caller.sub)).length;
+          const devices = await channelCount(svc, caller.sub);
           const tell = devices
             ? "I'll prepare it then and send a notification to your phone to sign it."
             : "I'll prepare it then for you to sign. Turn on notifications in the Afterhours app to hear about it right away.";

@@ -9,12 +9,13 @@
 
 import type { Services } from "../services.js";
 import { authenticate } from "../auth/oauth.js";
-import { addSubscription, notify, removeSubscription, validSubscription, vapidKeys, MAX_SUBSCRIPTIONS } from "../notify/push.js";
+import { addSubscription, indexAccount, notify, removeSubscription, validSubscription, vapidKeys, MAX_SUBSCRIPTIONS } from "../notify/push.js";
 import { readTape } from "../market/tape.js";
 import { lastRegularClose } from "../market/session.js";
 import { listingByTicker, resolveSymbol } from "../market/universe.js";
 import { RateLimit } from "./limit.js";
 import { watchWallet } from "../notify/wallet-watch.js";
+import { maskPhone, smsNumber, smsSender, startVerification, stopSms, verifyCode } from "../notify/sms.js";
 import { logActivity } from "../account/activity.js";
 import { readBasis } from "../chain/basis.js";
 import { tradesCsv } from "./export.js";
@@ -24,6 +25,8 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 const testLimit = new RateLimit(5, 10 * 60_000);
+// Per client address; the per-account limit (three codes an hour) is the real guard.
+const smsLimit = new RateLimit(20, 60 * 60_000);
 const readLimit = new RateLimit(120, 60_000);
 
 export async function accountApi(svc: Services, request: Request, url: URL): Promise<Response> {
@@ -60,6 +63,10 @@ export async function accountApi(svc: Services, request: Request, url: URL): Pro
       },
     });
   }
+  if (path === "/api/sms" && request.method === "GET") {
+    const phone = await smsNumber(svc, claims.sub);
+    return json({ available: Boolean(await smsSender(svc)), phone: phone ? maskPhone(phone) : null });
+  }
   if (path === "/api/export/data.json" && request.method === "GET") {
     return new Response(JSON.stringify(await exportData(svc, claims.sub), null, 2), {
       headers: { "content-type": "application/json", "content-disposition": 'attachment; filename="afterhours-account.json"', "cache-control": "no-store" },
@@ -82,6 +89,25 @@ export async function accountApi(svc: Services, request: Request, url: URL): Pro
   if (path === "/api/push/unsubscribe") {
     if (typeof body.endpoint !== "string") return json({ error: "endpoint required" }, 400);
     await removeSubscription(svc, claims.sub, body.endpoint);
+    return json({ ok: true });
+  }
+
+  if (path === "/api/sms/start") {
+    if (smsLimit.exceeded(request)) return json({ error: "Too many requests. Try again later." }, 429);
+    const r = await startVerification(svc, claims.sub, String((body as { phone?: unknown }).phone ?? ""));
+    return r.ok ? json({ ok: true, phone: maskPhone(r.phone) }) : json({ error: r.error }, 400);
+  }
+  if (path === "/api/sms/verify") {
+    const r = await verifyCode(svc, claims.sub, String((body as { code?: unknown }).code ?? ""));
+    if (!r.ok) return json({ error: r.error }, 400);
+    await indexAccount(svc, claims.sub);
+    if (claims.wallet) await watchWallet(svc, claims.sub, claims.wallet);
+    await logActivity(svc.store, claims.sub, { at: svc.now(), kind: "sms.added", text: `Turned on text alerts to ${maskPhone(r.phone)}.`, ok: true });
+    return json({ ok: true, phone: maskPhone(r.phone) });
+  }
+  if (path === "/api/sms/stop") {
+    await stopSms(svc, claims.sub);
+    await logActivity(svc.store, claims.sub, { at: svc.now(), kind: "sms.removed", text: "Turned off text alerts.", ok: true });
     return json({ ok: true });
   }
 

@@ -23,7 +23,7 @@ import { capitalise, clockTime, usd } from "../market/speech.js";
 import { parseTime, spokenTime } from "../notify/briefing.js";
 import { addPlan, cadencePhrase, listPlans, MAX_PLANS, parseWeekday, planRecord, removePlans, type Cadence } from "../chain/recurring.js";
 import { listingByTicker, resolveSymbol } from "../market/universe.js";
-import { listSubscriptions } from "../notify/push.js";
+import { channelCount } from "../notify/push.js";
 import { readBasis } from "../chain/basis.js";
 import { depthLadder, sizeWithin } from "../chain/depth.js";
 import { getTargets, planRebalance, setTargets } from "../market/rebalance.js";
@@ -237,7 +237,7 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         }
         const plan = await addPlan(svc, caller.sub, { ticker: listing.ticker, usd: amount_usd, cadence: cadence as Cadence, weekday, dayOfMonth, minutes, wallet: caller.wallet });
         const zone = await getZone(svc.store, caller.sub);
-        const devices = (await listSubscriptions(svc, caller.sub)).length;
+        const devices = await channelCount(svc, caller.sub);
         const plans = (await listPlans(svc, caller.sub)).length;
         return say(
           `Done. ${cadencePhrase(plan, spokenTime).replace(/^./, (c) => c.toUpperCase())} ${zoneName(zone)}, I'll prepare a ${usd(amount_usd)} buy of ${listing.spoken} and send it to your phone to sign. ${devices ? "" : "Turn on notifications in the Afterhours app so you get them. "}Nothing is bought unless you sign it.`,

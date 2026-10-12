@@ -12,6 +12,7 @@
  */
 
 import { count } from "../obs/metrics.js";
+import { smsNumber, smsSender } from "./sms.js";
 import webpush from "web-push";
 import type { Services } from "../services.js";
 
@@ -108,8 +109,7 @@ export async function addSubscription(svc: Services, sub: string, subscription: 
   const current = (await listSubscriptions(svc, sub)).filter((s) => s.endpoint !== subscription.endpoint);
   const next = [...current, subscription].slice(-MAX_SUBSCRIPTIONS);
   await svc.store.set(key(sub), next);
-  const index = (await svc.store.get<string[]>(PUSH_INDEX)) ?? [];
-  if (!index.includes(sub)) await svc.store.set(PUSH_INDEX, [...index, sub].slice(-5000));
+  await indexAccount(svc, sub);
   return next.length;
 }
 
@@ -130,23 +130,48 @@ export async function removeSubscription(svc: Services, sub: string, endpoint: s
  */
 export async function notify(svc: Services, sub: string, notice: Notice): Promise<number> {
   const subscriptions = await listSubscriptions(svc, sub);
-  if (subscriptions.length === 0) return 0;
-  const sender = svc.push ?? webPushSender(svc);
-  const payload = JSON.stringify(notice);
   let delivered = 0;
-  const dead: string[] = [];
-  await Promise.all(
-    subscriptions.map(async (s) => {
-      try {
-        const { gone } = await sender.send(s, payload);
-        if (gone) dead.push(s.endpoint);
-        else delivered += 1;
-      } catch (err) {
-        console.error("push:", (err as Error).message);
-      }
-    }),
-  );
-  if (dead.length) await svc.store.set(key(sub), subscriptions.filter((s) => !dead.includes(s.endpoint)));
+  if (subscriptions.length) {
+    const sender = svc.push ?? webPushSender(svc);
+    const payload = JSON.stringify(notice);
+    const dead: string[] = [];
+    await Promise.all(
+      subscriptions.map(async (s) => {
+        try {
+          const { gone } = await sender.send(s, payload);
+          if (gone) dead.push(s.endpoint);
+          else delivered += 1;
+        } catch (err) {
+          console.error("push:", (err as Error).message);
+        }
+      }),
+    );
+    if (dead.length) await svc.store.set(key(sub), subscriptions.filter((s) => !dead.includes(s.endpoint)));
+  }
+  // The same notice by text, when the account verified a number.
+  const phone = await smsNumber(svc, sub);
+  const sms = phone ? await smsSender(svc) : null;
+  if (phone && sms) {
+    const text = `${notice.title}. ${notice.body}`;
+    const message = `${text.length > 300 ? `${text.slice(0, 297)}…` : text} ${notice.url}`;
+    try {
+      await sms.send(phone, message);
+      delivered += 1;
+    } catch (err) {
+      console.error("sms:", (err as Error).message);
+    }
+  }
   if (delivered) count("PushSent", delivered);
   return delivered;
+}
+
+/** How many ways the account can be told something right now: devices, plus a verified phone. */
+export async function channelCount(svc: Services, sub: string): Promise<number> {
+  return (await listSubscriptions(svc, sub)).length + ((await smsNumber(svc, sub)) ? 1 : 0);
+}
+
+/** Adds an account to the index the background jobs notify from. */
+export async function indexAccount(svc: Services, sub: string): Promise<void> {
+  const index = (await svc.store.get<string[]>(PUSH_INDEX)) ?? [];
+  if (!index.includes(sub)) await svc.store.set(PUSH_INDEX, [...index, sub].slice(-5000));
 }

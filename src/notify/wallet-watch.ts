@@ -15,7 +15,7 @@
 
 import type { Services } from "../services.js";
 import type { Notice } from "./push.js";
-import { listSubscriptions, notify } from "./push.js";
+import { channelCount, notify } from "./push.js";
 import type { TradeIntent } from "../chain/trade.js";
 import { listingByTicker } from "../market/universe.js";
 import { usd } from "../market/speech.js";
@@ -71,7 +71,7 @@ export async function checkWallets(svc: Services, prices: Map<string, number>): 
   const now = svc.now();
   let sent = 0;
   for (const { sub, wallet } of index) {
-    if ((await listSubscriptions(svc, sub)).length === 0) continue;
+    if ((await channelCount(svc, sub)) === 0) continue;
     const holdings = await svc.holdings.read(wallet).catch(() => null);
     if (!holdings) continue;
     const current = Object.fromEntries(holdings.map((h) => [h.ticker, h.amount]));
