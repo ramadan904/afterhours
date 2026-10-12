@@ -6,7 +6,7 @@
 #
 # Needs: AWS CLI v2 with credentials, Docker. Optional env: STACK (default
 # afterhours), PUBLIC_URL (a custom domain; otherwise the App Runner URL is
-# used), ALEXA_CLIENT_ID, ALEXA_REDIRECT_URIS, BEDROCK_MODEL.
+# used), ALEXA_CLIENT_ID, ALEXA_REDIRECT_URIS, BEDROCK_MODEL, DEMO_WALLET.
 set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
@@ -31,7 +31,7 @@ deploy() {
     --template-file infra/aws.yaml --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset \
     --parameter-overrides "ImageUri=$IMAGE" "PublicUrl=$1" \
       "AlexaClientId=${ALEXA_CLIENT_ID:-}" "AlexaRedirectUris=${ALEXA_REDIRECT_URIS:-}" \
-      "BedrockModel=${BEDROCK_MODEL:-anthropic.claude-opus-5-5}"
+      "BedrockModel=${BEDROCK_MODEL:-anthropic.claude-opus-5-5}" "DemoWallet=${DEMO_WALLET:-}"
 }
 output() {
   aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \

@@ -34,6 +34,9 @@ async function scripted(): Promise<EvalResult[]> {
   });
 }
 
+/** Wall time of each Bedrock turn (model plus the MCP calls it makes), for the latency line. */
+const turnMs: number[] = [];
+
 async function bedrock(): Promise<EvalResult[]> {
   const svc = servicesFromEnv({ ...process.env, AFTERHOURS_DATA: "sample", PUBLIC_URL: "http://eval.local", NODE_ENV: "test" });
   const app = createApp(svc);
@@ -47,8 +50,10 @@ async function bedrock(): Promise<EvalResult[]> {
       3600,
     );
     const mcp = await McpSession.open(`${svc.baseUrl}/mcp`, token, fetchImpl);
+    const started = performance.now();
     try {
       const turn = await bedrockTurn(mcp, c.say, history(c));
+      turnMs.push(performance.now() - started);
       const first = turn.steps[0];
       results.push(score(c, first?.tool ?? null, (first?.rawArgs ?? first?.args) ?? null));
     } catch (err) {
@@ -65,8 +70,15 @@ const results = mode === "bedrock" ? await bedrock() : await scripted();
 const s = summarise(results);
 console.log(`Planner: ${mode} · ${set} · ${s.cases} cases · right tool ${(s.tool * 100).toFixed(1)}% · right tool and arguments ${(s.full * 100).toFixed(1)}%`);
 for (const r of results.filter((x) => !x.argsOk)) console.log(`  ✗ "${r.case.say}" → wanted ${r.case.tool}: ${r.why}`);
+const sorted = [...turnMs].sort((a, b) => a - b);
+const at = (p: number) => Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))]);
+const latency = sorted.length ? { turns: sorted.length, p50: at(0.5), p95: at(0.95), max: Math.round(sorted.at(-1)!) } : null;
+const errors = results.filter((r) => r.why?.startsWith("error:")).length;
+if (mode === "bedrock") {
+  console.log(latency ? `Bedrock turn latency (model + tool calls): p50 ${latency.p50} ms · p95 ${latency.p95} ms · max ${latency.max} ms · ${errors} errors` : `No Bedrock turn completed (${errors} errors).`);
+}
 const out = value("--json");
-if (out) writeFileSync(out, JSON.stringify({ mode, at: new Date().toISOString(), summary: s, results }, null, 2));
+if (out) writeFileSync(out, JSON.stringify({ mode, at: new Date().toISOString(), model: mode === "bedrock" ? (process.env.BEDROCK_MODEL ?? null) : null, summary: s, latency, errors, results }, null, 2));
 const min = Number(value("--min") ?? 0);
 if (s.full < min) {
   console.error(`Below the ${(min * 100).toFixed(0)}% bar.`);

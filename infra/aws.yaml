@@ -42,6 +42,13 @@ Parameters:
     Type: String
     Default: ""
     Description: Email for alarm notifications (optional; confirm the subscription email AWS sends).
+  DemoWallet:
+    Type: String
+    Default: ""
+    Description: >
+      Wallet address the simulator's guided demo uses (optional). Set it to a
+      wallet you control to show a real portfolio; empty means each demo gets
+      a fresh address no one holds the key to.
 
 Conditions:
   HasPublicUrl: !Not [!Equals [!Ref PublicUrl, ""]]
@@ -176,6 +183,7 @@ Resources:
               - { Name: POLLY, Value: "on" }
               - { Name: SMS, Value: !Ref SmsAlerts }
               - { Name: POLLY_VOICE, Value: !Ref PollyVoice }
+              - { Name: DEMO_WALLET, Value: !Ref DemoWallet }
             RuntimeEnvironmentSecrets:
               - { Name: AUTH_SECRET, Value: !Ref AuthSecret }
               - { Name: CRON_SECRET, Value: !Ref CronSecret }
@@ -329,3 +337,6 @@ Outputs:
   AlexaClientSecretArn:
     Description: Read with aws secretsmanager get-secret-value, then paste into the Alexa console
     Value: !Ref AlexaClientSecret
+  AuthSecretArn:
+    Description: The token-signing secret (ARN only); the deploy workflow reads it to run authenticated checks against the live URL
+    Value: !Ref AuthSecret

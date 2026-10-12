@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Lets this repository's GitHub Actions deploy Afterhours and run the Bedrock
+  planner eval, with short-lived OIDC credentials and no stored AWS keys.
+  Create it once (console: CloudFormation > Create stack > Upload this file),
+  then copy the RoleArn output into the repo's Actions variables as
+  AWS_ROLE_ARN.
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Default: ramadan904/afterhours
+    Description: owner/repo allowed to assume the role.
+  StackPrefix:
+    Type: String
+    Default: afterhours
+    Description: Name of the app stack the role may deploy (IAM access is limited to roles it creates).
+  CreateOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Set to false if this AWS account already has the token.actions.githubusercontent.com OIDC provider.
+
+Conditions:
+  MakeProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+  GitHubOidc:
+    Type: AWS::IAM::OIDCProvider
+    Condition: MakeProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: GitHub Actions deploys of Afterhours (and the Bedrock planner eval)
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepo}:*"
+      # Everything the stack uses (App Runner, ECR, DynamoDB, Secrets Manager,
+      # EventBridge, CloudWatch, SNS, Bedrock, Polly), minus IAM...
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/PowerUserAccess"
+      # ...plus IAM only for the roles the app stack itself creates.
+      Policies:
+        - PolicyName: stack-roles-only
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${StackPrefix}-*"
+              - Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/apprunner.amazonaws.com/*"
+
+Outputs:
+  RoleArn:
+    Description: Paste into GitHub > Settings > Secrets and variables > Actions > Variables as AWS_ROLE_ARN
+    Value: !GetAtt DeployRole.Arn

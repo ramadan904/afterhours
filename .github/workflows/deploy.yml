@@ -1,0 +1,160 @@
+# One click from the Actions tab: deploy the AWS stack, then prove it.
+#
+# Builds the image, deploys infra/aws.yaml (App Runner, DynamoDB, Secrets
+# Manager, EventBridge, CloudWatch, SNS, Bedrock, Polly), waits for /health,
+# then runs against the live URL: the Alexa+ conformance check (gates the
+# run), a short load test, and the planner eval on Claude in Amazon Bedrock.
+# Everything lands in the run's summary, ready to paste into SUBMISSION.md.
+#
+# Setup, once: create infra/github-oidc.yaml as a CloudFormation stack and
+# set its RoleArn output as the repository variable AWS_ROLE_ARN. No AWS keys
+# are stored anywhere.
+name: Deploy to AWS
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: AWS region
+        default: us-east-1
+        required: true
+      stack:
+        description: CloudFormation stack name
+        default: afterhours
+        required: true
+      public_url:
+        description: Custom HTTPS origin (optional; empty uses the App Runner URL)
+        default: ""
+        required: false
+      demo_wallet:
+        description: Wallet address for the simulator's guided demo (optional)
+        default: ""
+        required: false
+      bedrock_model:
+        description: Bedrock model ID for the planner (optional; empty keeps the default)
+        default: ""
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.stack }}
+  cancel-in-progress: false
+
+# "bash" (rather than the default) runs with -eo pipefail, so a failing
+# command piped into tee still fails its step.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      AWS_REGION: ${{ inputs.region }}
+      STACK: ${{ inputs.stack }}
+      PUBLIC_URL: ${{ inputs.public_url }}
+      DEMO_WALLET: ${{ inputs.demo_wallet }}
+    steps:
+      - name: Check setup
+        env:
+          ROLE: ${{ vars.AWS_ROLE_ARN }}
+        run: |
+          if [ -z "$ROLE" ]; then
+            echo "::error::Set the repository variable AWS_ROLE_ARN first: create infra/github-oidc.yaml as a CloudFormation stack and copy its RoleArn output (Settings > Secrets and variables > Actions > Variables)."
+            exit 1
+          fi
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.region }}
+      - name: Bedrock model
+        env:
+          MODEL: ${{ inputs.bedrock_model }}
+        run: if [ -n "$MODEL" ]; then echo "BEDROCK_MODEL=$MODEL" >> "$GITHUB_ENV"; fi
+
+      - name: Deploy the stack
+        run: ./scripts/deploy-aws.sh 2>&1 | tee deploy.log
+
+      - name: Live URL
+        id: live
+        run: |
+          out() { aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+          MCP="$(out McpEndpoint)"
+          echo "url=${MCP%/mcp}" >> "$GITHUB_OUTPUT"
+          echo "dashboard=$(out Dashboard)" >> "$GITHUB_OUTPUT"
+          SECRET="$(aws secretsmanager get-secret-value --secret-id "$(out AuthSecretArn)" --query SecretString --output text)"
+          echo "::add-mask::$SECRET"
+          echo "AUTH_SECRET=$SECRET" >> "$GITHUB_ENV"
+
+      - name: Wait for health
+        env:
+          URL: ${{ steps.live.outputs.url }}
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf "$URL/health" -o health.json; then cat health.json; echo; exit 0; fi
+            sleep 5
+          done
+          echo "::error::$URL/health never answered"; exit 1
+
+      - name: Alexa+ conformance against the live URL
+        env:
+          URL: ${{ steps.live.outputs.url }}
+        run: npx tsx scripts/conformance.ts "$URL" 2>&1 | tee conformance.txt; exit "${PIPESTATUS[0]}"
+
+      - name: Load test against the live URL
+        continue-on-error: true
+        env:
+          URL: ${{ steps.live.outputs.url }}
+        run: npx tsx scripts/load.ts "$URL" --concurrency 10 --seconds 15 --json load-live.json 2>&1 | tee load.txt
+
+      - name: Planner eval on Amazon Bedrock
+        continue-on-error: true
+        run: |
+          npx tsx scripts/eval-planner.ts --bedrock --json eval-bedrock.json 2>&1 | tee eval.txt
+          npx tsx scripts/eval-planner.ts --bedrock --set planner-holdout --json eval-bedrock-holdout.json 2>&1 | tee -a eval.txt
+
+      - name: Summary
+        if: always()
+        env:
+          URL: ${{ steps.live.outputs.url }}
+          DASHBOARD: ${{ steps.live.outputs.dashboard }}
+        run: |
+          {
+            echo "## Afterhours is live"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| MCP endpoint | \`$URL/mcp\` |"
+            echo "| Simulator (guided demo) | $URL/sim/ |"
+            echo "| Health | $URL/health |"
+            echo "| CloudWatch dashboard | $DASHBOARD |"
+            echo
+            echo "### For SUBMISSION.md"
+            echo
+            echo '```'
+            echo "- **Live endpoint:** \`$URL/mcp\` · simulator at $URL/sim/ (press \"Try the guided demo\")"
+            echo '```'
+            for f in conformance.txt load.txt eval.txt; do
+              if [ -s "$f" ]; then echo; echo "### ${f%.txt}"; echo; echo '```'; grep -v '^\s*$' "$f" | tail -40; echo '```'; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deploy-proof
+          path: |
+            health.json
+            conformance.txt
+            load.txt
+            load-live.json
+            eval.txt
+            eval-bedrock*.json
+          if-no-files-found: ignore

@@ -72,7 +72,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | **Splits and dividends, ahead of time** | xStocks apply splits and dividends by changing a multiplier on the mint, so every balance changes with no transfer. Afterhours reads the scheduled change and pushes holders first: "On Wednesday, every Apple token balance gets multiplied by 1.0042: about a 0.42% dividend, paid as more tokens." Wallet watch takes the change out before comparing, so a dividend is never reported as tokens arriving. |
 | **Wallet watch** | Afterhours can't move funds, so it can't protect them, but it can notice. With notifications on, the wallet's xStock balances are compared every 5 minutes; anything that left or arrived without a trade Afterhours prepared and saw confirmed is pushed at once: "4.25 TSLAx left your wallet. About $1,575. If it wasn't you, move what's left to a wallet only you control." |
 | **`.sol` names** | Link a watch-only account as `toly.sol` instead of a 44-character address; names resolve through the Solana Name Service and are checked to be a real key. |
-| **Measured understanding** | `eval/` holds 180 things people say, each with the tool and arguments a planner should pick, scored by meaning ("the S&P" = SPY, "7:00 am" = "7"). The scripted fallback planner scores 100% on the 148 cases it was tuned on and **50% on 32 held-out ones it never saw**, which is exactly why the real planner is Claude on Bedrock; CI gates the first, reports the second, and runs both against Bedrock when an AWS role is configured. |
+| **Measured understanding** | `eval/` holds 182 things people say, each with the tool and arguments a planner should pick, scored by meaning ("the S&P" = SPY, "7:00 am" = "7"). The scripted fallback planner scores 100% on the 150 cases it was tuned on and **50% on 32 held-out ones it never saw**, which is exactly why the real planner is Claude on Bedrock; CI gates the first, reports the second, and runs both against Bedrock when an AWS role is configured. |
 | **Accessible** | The confirm page, companion app and simulator pass an axe-core WCAG 2 A/AA audit in light and dark themes, in CI on every push. |
 | **Track record** | Is the overnight move worth anything? For every market open in the last month, Afterhours compares where the token traded at 9 a.m. with where the share actually opened, from public on-chain (GeckoTerminal) and exchange (Yahoo) history, refreshed daily. "Its token has called the open's direction 16 of the last 20 times." |
 | **Your time zone** | "I'm in Lagos." Every time Afterhours speaks or sends is then local: "It opens tomorrow at 2:30 p.m. Lagos time." Most holders of tokenized US stocks don't live in New York. |
@@ -143,8 +143,23 @@ uses Render's HTTPS URL as the public URL. It's a long-running service, so the o
 timer. (Render's free plan sleeps when idle, which breaks the 500 ms budget on the first call and pauses the tape; use
 Starter or above for judging.)
 
-**AWS (App Runner + DynamoDB + EventBridge + Bedrock).** One command builds the image, pushes it to ECR and deploys
-`infra/aws.yaml`:
+**AWS from GitHub, no keys stored (recommended).** Three steps, once:
+
+1. In the AWS console, open **CloudFormation > Create stack > Upload a template file**, choose
+   [`infra/github-oidc.yaml`](infra/github-oidc.yaml), and create it. It makes a role that only this repository's
+   GitHub Actions can assume, through OIDC.
+2. Copy the stack's **RoleArn** output into the repo: **Settings > Secrets and variables > Actions > Variables >
+   New variable**, named `AWS_ROLE_ARN`.
+3. In the Bedrock console, enable model access for the planner's model. Then open **Actions > Deploy to AWS > Run
+   workflow**.
+
+The [workflow](.github/workflows/deploy.yml) deploys the stack below, waits for `/health`, then runs **against the live
+URL**: the Alexa+ conformance check (which gates the run), a short load test, and the planner eval on Bedrock. The
+run's summary lists the live endpoint, simulator and CloudWatch dashboard, with every result, ready to paste into
+the submission. The same `AWS_ROLE_ARN` also turns on the Bedrock eval job in CI.
+
+**AWS (App Runner + DynamoDB + EventBridge + Bedrock) from a terminal.** One command builds the image, pushes it to
+ECR and deploys `infra/aws.yaml`:
 
 ```bash
 AWS_REGION=us-east-1 ./scripts/deploy-aws.sh

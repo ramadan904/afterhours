@@ -5,7 +5,8 @@ Ready to paste into Devpost. Items marked **TODO** depend on things only the tea
 - **Primary track:** Alexa+ (self-hosted MCP server, spec 2025-11-25, Streamable HTTP)
 - **Mini-challenges:** Open Source (new MIT-licensed repo) · AWS Builder (Amazon Bedrock planner; App Runner deploy)
 - **Repo:** https://github.com/ramadan904/afterhours
-- **Live endpoint:** **TODO** `https://<host>/mcp` · simulator at `https://<host>/sim/`
+- **Live endpoint:** **TODO** `https://<host>/mcp` · simulator at `https://<host>/sim/` (press **Try the guided
+  demo**: no wallet needed). Run **Actions > Deploy to AWS** and paste the line from the run's summary here.
 - **Demo video (<3 min):** **TODO**
 
 ---
@@ -136,11 +137,16 @@ Afterhours deploys to AWS with one command (`scripts/deploy-aws.sh` → `infra/a
   by default), so the demo sounds the same on any laptop; the browser's own voice is the fallback (`src/sim/voice.ts`).
 - **Amazon SNS:** text alerts for phones without web push, with code verification (`src/notify/sms.ts`), published straight to the
   verified number; a separate SNS topic carries the CloudWatch alarms.
-- **Measured planner:** `scripts/eval-planner.ts --bedrock` scores Claude on Bedrock on 171 utterances (139 + 32
-  held out) by tool and arguments; a CI job runs it through GitHub OIDC when an AWS role is configured. The scripted
-  fallback scores 99% on what it was tuned on and 50% held out, which is the case for Bedrock in one number.
-- **TODO before submitting:** deploy the stack, enable Bedrock model access, run the Bedrock eval, and capture a
-  `planner: bedrock` trace.
+- **Measured planner:** `scripts/eval-planner.ts --bedrock` scores Claude on Bedrock on 182 utterances (150 + 32
+  held out) by tool and arguments, and reports per-turn latency; CI runs it through GitHub OIDC when an AWS role is
+  configured. The scripted fallback scores 100% on what it was tuned on and 50% held out, which is the case for
+  Bedrock in one number.
+- **One-click, keyless deploy:** [`infra/github-oidc.yaml`](infra/github-oidc.yaml) creates a role only this repo's
+  GitHub Actions can assume (OIDC; PowerUser plus IAM limited to the stack's own roles). The **Deploy to AWS**
+  workflow then deploys, waits for health, and runs the conformance check, a load test and the Bedrock eval against
+  the live URL, publishing all of it in the run summary.
+- **TODO before submitting:** run **Deploy to AWS**, paste its results here and in the Bedrock section below, and
+  capture a `planner: bedrock` trace in the simulator.
 
 ## Open Source
 
@@ -153,14 +159,21 @@ MCP conformance script any add-on developer can point at their own server.
 **MCP TypeScript SDK.** `WebStandardStreamableHTTPServerTransport` in stateless JSON mode was the right fit: one
 `(Request) => Response` handler runs unchanged on Node, Vercel and Lambda. `registerTool` with zod `outputSchema` gave
 validated `structuredContent` for free. Friction: the stateless pattern (new server per request) isn't the documented
-default, and annotation semantics for "writes but isn't destructive" took reading the spec.
+default, and it's costly as written: profiling showed rebuilding 34 tools' zod schemas, an Ajv validator and the
+`tools/list` JSON Schemas took about 3.8 ms of CPU per request, more than most tool handlers. Recording the definitions
+once and replaying them (callers via `AsyncLocalStorage`) took the same load test from 95 to 572 requests/s. An
+official "define once, serve statelessly" helper would save every MCP server author that work. Annotation semantics
+for "writes but isn't destructive" took reading the spec.
 
 **Alexa+ MCP documentation.** The QuickStart's auth checklist (RFC 9728, S256, `resource`, no DCR) was precise and
 easy to build to. What we missed: a way for non-partners to test against the real Alexa+ client, guidance on how
 Alexa+ uses `content` vs `structuredContent` (does it read our sentence, or rephrase the data?), and whether results
 can render on Echo Show screens. See [FRICTION.md](FRICTION.md).
 
-**Amazon Bedrock.** **TODO:** fill in after running the planner with credentials (setup, model access, latency).
+**Amazon Bedrock.** **TODO:** fill in from the Deploy to AWS run: the eval's tool and argument scores on both sets,
+and its `Bedrock turn latency` line (p50/p95 per turn, model plus tool calls). Also: how model access setup went,
+whether any request was refused, and how the tool loop felt against the 500 ms per-call budget (the budget covers
+MCP calls; the model's own thinking time is Alexa+'s, not ours).
 
 **Would we use it again?** Yes. An MCP server is a far smaller surface than a classic skill, and the same server
 already works with any MCP client.
