@@ -119,8 +119,8 @@ Afterhours deploys to AWS with one command (`scripts/deploy-aws.sh` → `infra/a
   minutes (which would mean alerts, briefings and settlement have stopped).
 - **Amazon Polly:** the simulator speaks each reply with a Polly voice (generative engine, neural as fallback; `Ruth`
   by default), so the demo sounds the same on any laptop; the browser's own voice is the fallback (`src/sim/voice.ts`).
-- **Amazon SNS:** text alerts for phones without web push, with code verification (`src/notify/sms.ts`); the same
-  SNS topic carries the CloudWatch alarms.
+- **Amazon SNS:** text alerts for phones without web push, with code verification (`src/notify/sms.ts`), published straight to the
+  verified number; a separate SNS topic carries the CloudWatch alarms.
 - **Measured planner:** `scripts/eval-planner.ts --bedrock` scores Claude on Bedrock on 171 utterances (139 + 32
   held out) by tool and arguments; a CI job runs it through GitHub OIDC when an AWS role is configured. The scripted
   fallback scores 99% on what it was tuned on and 50% held out, which is the case for Bedrock in one number.
