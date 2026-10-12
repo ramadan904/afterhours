@@ -17,13 +17,14 @@ import {
   DynamoDBClient,
   GetItemCommand,
   PutItemCommand,
+  UpdateItemCommand,
   type AttributeValue,
 } from "@aws-sdk/client-dynamodb";
 import type { Store } from "./store.js";
 
 /** The subset of DynamoDBClient used here, so tests can pass a fake. */
 export interface DynamoLike {
-  send(command: GetItemCommand | PutItemCommand | DeleteItemCommand): Promise<{ Item?: Record<string, AttributeValue>; Attributes?: Record<string, AttributeValue> }>;
+  send(command: GetItemCommand | PutItemCommand | DeleteItemCommand | UpdateItemCommand): Promise<{ Item?: Record<string, AttributeValue>; Attributes?: Record<string, AttributeValue> }>;
 }
 
 export class DynamoStore implements Store {
@@ -80,5 +81,53 @@ export class DynamoStore implements Store {
   async take<T>(key: string): Promise<T | null> {
     const res = await this.client.send(new DeleteItemCommand({ TableName: this.table, Key: { k: { S: key } }, ReturnValues: "ALL_OLD" }));
     return this.live<T>(res.Attributes);
+  }
+
+  /**
+   * ADD is atomic, and the TTL is set only on the first increment. A counter
+   * past its TTL may not be deleted yet (DynamoDB lags), so the update is
+   * conditional on it being live; an expired one is replaced by a fresh count.
+   */
+  async incr(key: string, ttlSeconds: number): Promise<number> {
+    const nowS = Math.floor(this.now() / 1000);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const res = await this.client.send(
+          new UpdateItemCommand({
+            TableName: this.table,
+            Key: { k: { S: key } },
+            UpdateExpression: "ADD n :one SET #ttl = if_not_exists(#ttl, :ttl)",
+            ConditionExpression: "attribute_not_exists(#ttl) OR #ttl > :now",
+            ExpressionAttributeNames: { "#ttl": "ttl" },
+            ExpressionAttributeValues: { ":one": { N: "1" }, ":ttl": { N: String(nowS + ttlSeconds) }, ":now": { N: String(nowS) } },
+            ReturnValues: "UPDATED_NEW",
+          }),
+        );
+        return Number(res.Attributes?.n?.N ?? 1);
+      } catch (err) {
+        if ((err as Error).name !== "ConditionalCheckFailedException") throw err;
+        // Expired: start over at 1, unless another instance just did.
+        if (await this.setCounter(key, nowS + ttlSeconds, nowS)) return 1;
+      }
+    }
+    return 1;
+  }
+
+  private async setCounter(key: string, ttl: number, nowS: number): Promise<boolean> {
+    try {
+      await this.client.send(
+        new PutItemCommand({
+          TableName: this.table,
+          Item: { k: { S: key }, n: { N: "1" }, ttl: { N: String(ttl) } },
+          ConditionExpression: "attribute_not_exists(k) OR #ttl <= :now",
+          ExpressionAttributeNames: { "#ttl": "ttl" },
+          ExpressionAttributeValues: { ":now": { N: String(nowS) } },
+        }),
+      );
+      return true;
+    } catch (err) {
+      if ((err as Error).name === "ConditionalCheckFailedException") return false;
+      throw err;
+    }
   }
 }

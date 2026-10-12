@@ -10,7 +10,7 @@ import type { Services } from "../services.js";
 import { intentByCode, saveIntent, type TradeIntent } from "../chain/trade.js";
 import { buildTrade, markSubmitted, refreshIntent, TradeNotReady } from "../chain/settle.js";
 import { listingByTicker } from "../market/universe.js";
-import { RateLimit } from "./limit.js";
+import { SharedRateLimit } from "./limit.js";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -18,7 +18,7 @@ const json = (body: unknown, status = 200) =>
 export const SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,90}$/;
 
 /** Code lookups and actions: generous for a person, useless for guessing a 1-in-a-million code. */
-export const tradeLimit = new RateLimit(60, 10 * 60_000);
+export const tradeLimit = new SharedRateLimit("trade", 60, 10 * 60_000);
 
 function view(i: TradeIntent) {
   const listing = listingByTicker(i.ticker);
@@ -52,7 +52,7 @@ async function find(svc: Services, code: unknown): Promise<TradeIntent | Respons
 }
 
 export async function tradeApi(svc: Services, request: Request, url: URL): Promise<Response> {
-  if (tradeLimit.exceeded(request)) return json({ error: "Too many attempts. Wait a few minutes." }, 429);
+  if (await tradeLimit.exceeded(svc.store, request)) return json({ error: "Too many attempts. Wait a few minutes." }, 429);
   const path = url.pathname;
 
   if (path === "/api/trade" && request.method === "GET") {

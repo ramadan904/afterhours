@@ -36,3 +36,31 @@ export class RateLimit {
     return hit.n > this.max;
   }
 }
+
+/**
+ * The same limit, counted in the shared store, so it holds across every
+ * instance of the server: with in-memory counts, each new App Runner instance
+ * would hand a code-guesser another full allowance. If the store can't be
+ * reached, the in-memory limit still applies.
+ */
+export class SharedRateLimit {
+  private readonly local: RateLimit;
+
+  constructor(
+    private readonly name: string,
+    private readonly max: number,
+    private readonly windowMs: number,
+  ) {
+    this.local = new RateLimit(max, windowMs);
+  }
+
+  async exceeded(store: { incr(key: string, ttlSeconds: number): Promise<number> }, request: Request, now = Date.now()): Promise<boolean> {
+    const window = Math.floor(now / this.windowMs);
+    const key = `rl:${this.name}:${clientAddress(request)}:${window}`;
+    try {
+      return (await store.incr(key, Math.ceil(this.windowMs / 1000) + 5)) > this.max;
+    } catch {
+      return this.local.exceeded(request);
+    }
+  }
+}

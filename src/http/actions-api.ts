@@ -119,7 +119,7 @@ export async function actionsApi(svc: Services, request: Request, url: URL): Pro
 
   const m = /^\/api\/actions\/trade\/(\d{6})(\/next|\/card\.svg)?$/.exec(path);
   if (!m) return refuse("Not found", 404);
-  if (tradeLimit.exceeded(request)) return refuse("Too many attempts. Wait a few minutes.", 429);
+  if (await tradeLimit.exceeded(svc.store, request)) return refuse("Too many attempts. Wait a few minutes.", 429);
   const [, code, tail] = m;
   const found = await findByCode(svc, code);
 

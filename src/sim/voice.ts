@@ -13,12 +13,12 @@
 
 import type { Services } from "../services.js";
 import { authenticate } from "../auth/oauth.js";
-import { RateLimit } from "../http/limit.js";
+import { SharedRateLimit } from "../http/limit.js";
 
 export type Synth = (text: string, voice: string, engine: "generative" | "neural") => Promise<Uint8Array>;
 
 let synth: Synth | null = null;
-const limit = new RateLimit(60, 60_000);
+const limit = new SharedRateLimit("voice", 60, 60_000);
 
 export function pollyEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.POLLY === "on" || synth !== null;
@@ -44,7 +44,7 @@ async function pollySynth(): Promise<Synth> {
 export async function speak(svc: Services, request: Request): Promise<Response> {
   if (!pollyEnabled()) return new Response(null, { status: 404 });
   if (svc.authRequired && !authenticate(svc, request)) return new Response(null, { status: 401 });
-  if (limit.exceeded(request)) return new Response(null, { status: 429 });
+  if (await limit.exceeded(svc.store, request)) return new Response(null, { status: 429 });
   const body = (await request.json().catch(() => ({}))) as { text?: unknown };
   const text = typeof body.text === "string" ? body.text.trim().slice(0, 600) : "";
   if (!text) return new Response(null, { status: 400 });

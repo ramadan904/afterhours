@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DeleteItemCommand, GetItemCommand, PutItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import { DeleteItemCommand, GetItemCommand, PutItemCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import { MemoryStore, UpstashStore, type Store } from "../src/store/store.js";
 import { DynamoStore, type DynamoLike } from "../src/store/dynamo.js";
 
@@ -10,6 +10,21 @@ function fakeDynamo(now: () => number): DynamoLike {
     async send(cmd) {
       const input = cmd.input as { Key?: { k: { S: string } }; Item?: Record<string, AttributeValue>; ConditionExpression?: string; ReturnValues?: string };
       if (cmd instanceof GetItemCommand) return { Item: table.get(input.Key!.k.S) };
+      if (cmd instanceof UpdateItemCommand) {
+        const k = input.Key!.k.S;
+        const vals = (cmd.input as { ExpressionAttributeValues: Record<string, AttributeValue> }).ExpressionAttributeValues;
+        const current = table.get(k);
+        // Like DynamoDB: an expired item lingers until TTL deletion gets to it.
+        if (input.ConditionExpression && current?.ttl?.N && Number(current.ttl.N) <= Number(vals[":now"].N)) {
+          const err = new Error("The conditional request failed");
+          err.name = "ConditionalCheckFailedException";
+          throw err;
+        }
+        const old = current ?? { k: { S: k } };
+        const next = { ...old, n: { N: String(Number(old.n?.N ?? 0) + 1) }, ttl: old.ttl ?? vals[":ttl"] };
+        table.set(k, next);
+        return { Attributes: { n: next.n, ttl: next.ttl } };
+      }
       if (cmd instanceof PutItemCommand) {
         const key = input.Item!.k.S!;
         const existing = table.get(key);
@@ -54,6 +69,17 @@ function fakeUpstash(now: () => number): typeof fetch {
     }
     if (cmd === "DEL") data.delete(key);
     if (cmd === "GETDEL") ((result = live(key)?.v ?? null), data.delete(key));
+    if (cmd === "INCR") {
+      const hit = live(key);
+      const n = Number(hit?.v ?? 0) + 1;
+      data.set(key, { v: String(n), exp: hit?.exp ?? 0 });
+      result = n;
+    }
+    if (cmd === "EXPIRE") {
+      const hit = live(key);
+      if (hit) hit.exp = now() + Number(value) * 1000;
+      result = hit ? 1 : 0;
+    }
     return new Response(JSON.stringify({ result }));
   }) as typeof fetch;
 }
@@ -65,6 +91,17 @@ const backends: [string, (now: () => number) => Store][] = [
 ];
 
 describe.each(backends)("%s store contract", (_name, make) => {
+  it("counts atomically and starts a fresh count when the window ends", async () => {
+    let t = 0;
+    const store = make(() => t);
+    expect(await store.incr("rl", 60)).toBe(1);
+    expect(await store.incr("rl", 60)).toBe(2);
+    t = 30_000;
+    expect(await store.incr("rl", 60)).toBe(3); // the window isn't extended by later hits
+    t = 61_000;
+    expect(await store.incr("rl", 60)).toBe(1);
+  });
+
   it("round-trips JSON values", async () => {
     const store = make(() => 0);
     await store.set("a", { n: 1, list: [1, 2] });

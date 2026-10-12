@@ -13,7 +13,7 @@ import { addSubscription, indexAccount, notify, removeSubscription, validSubscri
 import { readTape } from "../market/tape.js";
 import { lastRegularClose } from "../market/session.js";
 import { listingByTicker, resolveSymbol } from "../market/universe.js";
-import { RateLimit } from "./limit.js";
+import { RateLimit, SharedRateLimit } from "./limit.js";
 import { watchWallet } from "../notify/wallet-watch.js";
 import { maskPhone, smsNumber, smsSender, startVerification, stopSms, verifyCode } from "../notify/sms.js";
 import { logActivity } from "../account/activity.js";
@@ -26,7 +26,7 @@ const json = (body: unknown, status = 200) =>
 
 const testLimit = new RateLimit(5, 10 * 60_000);
 // Per client address; the per-account limit (three codes an hour) is the real guard.
-const smsLimit = new RateLimit(20, 60 * 60_000);
+const smsLimit = new SharedRateLimit("sms", 20, 60 * 60_000);
 const readLimit = new RateLimit(120, 60_000);
 
 export async function accountApi(svc: Services, request: Request, url: URL): Promise<Response> {
@@ -93,7 +93,7 @@ export async function accountApi(svc: Services, request: Request, url: URL): Pro
   }
 
   if (path === "/api/sms/start") {
-    if (smsLimit.exceeded(request)) return json({ error: "Too many requests. Try again later." }, 429);
+    if (await smsLimit.exceeded(svc.store, request)) return json({ error: "Too many requests. Try again later." }, 429);
     const r = await startVerification(svc, claims.sub, String((body as { phone?: unknown }).phone ?? ""));
     return r.ok ? json({ ok: true, phone: maskPhone(r.phone) }) : json({ error: r.error }, 400);
   }

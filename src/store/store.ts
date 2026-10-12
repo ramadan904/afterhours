@@ -19,6 +19,12 @@ export interface Store {
   del(key: string): Promise<void>;
   /** Reads and deletes in one step, so a one-time value can only be used once. */
   take<T>(key: string): Promise<T | null>;
+  /**
+   * Adds one to a counter and returns the new count, atomically across every
+   * instance of the server (rate limits). The TTL is set when the counter is
+   * created. Counters are only ever read through incr.
+   */
+  incr(key: string, ttlSeconds: number): Promise<number>;
 }
 
 export class MemoryStore implements Store {
@@ -62,6 +68,13 @@ export class MemoryStore implements Store {
     const value = await this.get<T>(key);
     this.map.delete(key);
     return value;
+  }
+
+  async incr(key: string, ttlSeconds: number): Promise<number> {
+    const hit = this.live(key);
+    const n = (hit ? Number(JSON.parse(hit.value)) : 0) + 1;
+    this.map.set(key, { value: JSON.stringify(n), expires: hit?.expires || this.now() + ttlSeconds * 1000 });
+    return n;
   }
 }
 
@@ -109,6 +122,13 @@ export class UpstashStore implements Store {
   async take<T>(key: string): Promise<T | null> {
     const raw = await this.command<string | null>(["GETDEL", key]);
     return raw === null ? null : (JSON.parse(raw) as T);
+  }
+
+  async incr(key: string, ttlSeconds: number): Promise<number> {
+    const n = await this.command<number>(["INCR", key]);
+    // The first increment starts the window; later ones leave it alone.
+    if (n === 1) await this.command(["EXPIRE", key, ttlSeconds]);
+    return n;
   }
 }
 
