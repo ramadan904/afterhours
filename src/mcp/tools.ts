@@ -220,7 +220,7 @@ const intentShape = {
 };
 
 /** Tools that act even when called with no arguments (the rest only read without them). */
-const CHANGES_WITHOUT_ARGS = new Set(["cancel_trade", "stop_recurring_buy", "delete_my_data"]);
+const CHANGES_WITHOUT_ARGS = new Set(["cancel_trade", "stop_recurring_buy"]);
 
 /** Diversified by construction: no concentration warning for buying these. */
 const BROAD_FUNDS = new Set(["SPY", "QQQ", "VTI", "IWM"]);
@@ -270,7 +270,9 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       try {
         const result = (await cb(...a)) as Result;
         const args = (a[0] ?? {}) as Record<string, unknown>;
-        const changes = !config.annotations?.readOnlyHint && (Object.keys(args).length > 0 || CHANGES_WITHOUT_ARGS.has(name));
+        // A deletion that worked leaves nothing behind, not even its own log line.
+        const erased = name === "delete_my_data" && !result.isError && args.confirm === true;
+        const changes = !erased && !config.annotations?.readOnlyHint && (Object.keys(args).length > 0 || CHANGES_WITHOUT_ARGS.has(name));
         if (changes) {
           const text = result.content.map((c) => c.text).join(" ");
           await logActivity(svc.store, caller.sub, { at: svc.now(), kind: name, text: firstSentence(text), ok: !result.isError }).catch(() => undefined);

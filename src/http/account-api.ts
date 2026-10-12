@@ -18,6 +18,7 @@ import { watchWallet } from "../notify/wallet-watch.js";
 import { logActivity } from "../account/activity.js";
 import { readBasis } from "../chain/basis.js";
 import { tradesCsv } from "./export.js";
+import { exportData } from "../account/data.js";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -57,6 +58,11 @@ export async function accountApi(svc: Services, request: Request, url: URL): Pro
         "content-disposition": `attachment; filename="afterhours-trades-${(wallet || "sample").slice(0, 6)}.csv"`,
         "cache-control": "no-store",
       },
+    });
+  }
+  if (path === "/api/export/data.json" && request.method === "GET") {
+    return new Response(JSON.stringify(await exportData(svc, claims.sub), null, 2), {
+      headers: { "content-type": "application/json", "content-disposition": 'attachment; filename="afterhours-account.json"', "cache-control": "no-store" },
     });
   }
   if (request.method !== "POST") return json({ error: "Not found" }, 404);

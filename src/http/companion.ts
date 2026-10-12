@@ -79,7 +79,8 @@ ${p.sample ? `<p class="small muted">This server runs on sample data; you can si
 <form class="form" id="limitForm"><label class="small muted" for="gLimit" style="align-self:center">Daily buys up to $</label><input id="gLimit" type="number" min="1" step="1" placeholder="no limit"><button class="primary" type="submit">Set limit</button><button type="button" id="gNoLimit">Remove</button></form><p id="limitMsg" class="small muted" role="status"></p>
 <form class="form" id="sleepForm"><label class="small" style="align-self:center;display:flex;gap:6px;align-items:center"><input id="sOn" type="checkbox" style="width:auto"> Sleep mode from</label><label class="sr-only" for="sFrom">From</label><input id="sFrom" type="time" value="23:00"><label class="small muted" for="sTo" style="align-self:center">to</label><input id="sTo" type="time" value="07:00"><button class="primary" type="submit">Save</button></form><p id="sleepMsg" class="small muted" role="status"></p></section>
 <section class="sec" aria-labelledby="tTitle"><h2 id="tTitle">Latest trade</h2><div id="trade"><p class="empty">No trade yet. Say "buy 25 dollars of Apple" to Alexa.</p></div></section>
-<section class="sec" aria-labelledby="yTitle"><h2 id="yTitle">Activity</h2><p class="small muted" style="margin:0 0 8px">Everything that changed on your account through Afterhours, including by voice.</p><ol id="activity" class="activity"></ol></section>
+<section class="sec" aria-labelledby="yTitle"><h2 id="yTitle">Activity</h2><p class="small muted" style="margin:0 0 8px">Everything that changed on your account through Afterhours, including by voice.</p><ol id="activity" class="activity"></ol>
+<div class="row" style="margin-top:12px;gap:8px"><button class="small" id="exportData">Download my data (JSON)</button><button class="small" id="deleteData">Delete my data</button></div><p id="dataMsg" class="small muted" role="status"></p></section>
 <section class="sec" aria-labelledby="nTitle"><h2 id="nTitle">Notifications</h2><p id="pushText" class="muted" style="margin:0 0 10px">Get your alerts on this device the moment they go off, even at 2 a.m.</p>
 <div class="row"><button class="primary" id="pushOn" hidden>Turn on</button><button id="pushTest" hidden>Send a test</button><button id="pushOff" hidden>Turn off</button></div>
 <h3 style="margin:18px 0 6px;font-size:15px">Scheduled briefing</h3><p id="briefText" class="small muted" style="margin:0 0 8px">Your positions, watchlist and the biggest moves, sent at a time you pick.</p>
@@ -196,6 +197,12 @@ async function loadReturns(){const r=await tool("my_returns",{});const host=$("r
 async function loadActivity(){const r=await tool("my_activity",{count:10});const host=$("activity");const list=(r.data&&r.data.entries)||[];
  if(!list.length){host.innerHTML="<li class=empty>Nothing yet.</li>";return}
  host.innerHTML=list.map(e=>"<li class='"+(e.ok?"":"bad")+"'><time datetime='"+escH(e.at)+"'>"+escH(new Date(e.at).toLocaleString([], {weekday:"short",hour:"numeric",minute:"2-digit"}))+"</time> "+escH(e.text)+"</li>").join("")}
+async function authedGet(path){const go=()=>fetch(CFG.base+path,{headers:{authorization:"Bearer "+st.get("ah_at")}});let r=await go();if(r.status===401&&await refresh())r=await go();return r}
+$("exportData").onclick=async()=>{const r=await authedGet("/api/export/data.json");if(!r.ok){$("dataMsg").textContent="Couldn't export right now.";return}
+ const url=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=url;a.download="afterhours-account.json";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+$("deleteData").onclick=async()=>{const first=await tool("delete_my_data",{});if(!confirm(first.text.replace(/ Say yes.*$/,"")+" Delete everything?"))return;
+ let r=await tool("delete_my_data",{confirm:true});if(r.error&&/PIN/.test(r.text)){const pin=prompt(r.text);if(!pin)return;r=await tool("delete_my_data",{confirm:true,pin})}
+ $("dataMsg").textContent=r.text;if(!r.error)show()};
 async function loadAlerts(){const r=await tool("list_alerts");const host=$("alerts");const list=(r.data&&r.data.alerts)||[];
  if(!list.length){host.innerHTML="<p class=empty>No alerts yet. Add one below, or say “tell me if Tesla moves more than 2 percent.”</p>";return}
  host.innerHTML="";for(const a of list){const div=document.createElement("div");div.className="alert";

@@ -29,6 +29,7 @@ import { getTargets, planRebalance, setTargets } from "../market/rebalance.js";
 import { openKey, type OpenResult } from "../notify/open-verdict.js";
 import { recapSentence, setWeekly, weeklyOn, weekRecap } from "../notify/weekly.js";
 import { readActivity } from "../account/activity.js";
+import { deleteData } from "../account/data.js";
 import { whenSpoken } from "../market/speech.js";
 import { sampleOpens } from "../market/history.js";
 import { getMarketSession, toEasternParts } from "../market/session.js";
@@ -738,6 +739,37 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         const failed = all.filter((e) => !e.ok && now - e.at < 7 * 86_400_000 && /PIN/.test(e.text)).length;
         const lines = recent.map((e) => `${capitalise(whenSpoken(e.at, now, zone))}: ${e.text.replace(/\.$/, "")}.`);
         return say(`${failed ? `Heads up: ${failed === 1 ? "one wrong PIN was" : `${failed} wrong PINs were`} tried this week. ` : ""}Most recent first. ${lines.join(" ")}`, data);
+      }),
+  );
+
+  server.registerTool(
+    "delete_my_data",
+    {
+      title: "Delete everything Afterhours keeps about me",
+      description:
+        "Deletes every setting and record Afterhours keeps for this account (alerts, limits, PIN, watchlist, briefings, recurring buys, target mix, activity log, notification devices) and cancels anything waiting to be signed or triggered. Nothing on Solana or in the wallet is touched. Without confirm it explains what will go and asks; call with confirm only after the user says yes. Use for 'delete my data', 'forget me', 'erase my account'.",
+      inputSchema: {
+        confirm: z.boolean().optional().describe("True only after the user has heard what will be deleted and said yes."),
+        pin: z.string().optional().describe("The trade PIN, if the account has one."),
+      },
+      outputSchema: { deleted: z.boolean(), records: z.number() },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ confirm, pin }) =>
+      guard(async () => {
+        if (!confirm) {
+          return say(
+            "That deletes everything Afterhours keeps for you: alerts, limits, your PIN, watchlist, briefings, recurring buys, your target mix and the activity log, and it cancels anything waiting to be signed. Your wallet and everything on Solana stay as they are. Say yes, delete everything, to go ahead.",
+            { deleted: false, records: 0 },
+          );
+        }
+        const pinCheck = await checkPin(svc.store, caller.sub, pin, svc.now());
+        if (!pinCheck.ok) return fail(pinCheck.reason === "missing" ? "Your account has a trade PIN. Say it to confirm deleting everything." : pinRefusal(pinCheck, await getZone(svc.store, caller.sub)));
+        const records = await deleteData(svc, caller.sub);
+        return say(
+          "Done. Everything Afterhours kept for you is deleted, and anything waiting was cancelled. Your wallet is untouched. To stop Alexa using Afterhours at all, unlink it in the Alexa app.",
+          { deleted: true, records },
+        );
       }),
   );
 }
