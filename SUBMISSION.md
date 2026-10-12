@@ -79,8 +79,10 @@ by voice:
   500 ms budget even at 100 listeners (331 ms). CPU profiles found three costs: tool definitions rebuilt per request,
   the overnight tape re-decoded per stock check, and time-zone formatting in hot loops. Fixing them took the same test
   from 95 to 572 requests/s (6×). Full numbers and method: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
-- **Never reads out a broken price:** a token more than 1.5× from its share is flagged as suspect instead of reported
-  as a move (CI's live run once caught "Super Micro up 17722 percent"). It's kept out of rankings, sectors, the tape
+- **Never reads out a broken price:** CI's live run once caught "Super Micro up 17722 percent": $2.89 of liquidity
+  behind the token. An audit of all 60 xStocks found every token above $100,000 of liquidity within 1% of its share,
+  and 37 of 60 under $10,000, where gaps ran to 727%. Those are now *thin markets*, and anything more than 1.5× from
+  its share is *suspect*. It's kept out of rankings, sectors, the tape
   and alerts, explained honestly when asked about, and never traded on.
 - **Market-aware language:** an NYSE calendar (holidays, half days, DST) labels every reading with its session, and
   names the reference the way a person would ("since Friday's close", "against the live share price").

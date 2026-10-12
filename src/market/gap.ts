@@ -33,8 +33,11 @@ export const SUSPECT_RATIO = 1.5;
 
 /**
  * Below this much on-chain liquidity, a token's price is the last stray swap,
- * not a market. CI's live audit found the outliers at $3 to $813 (Super Micro
- * at 178x its share); names people actually trade sit far above.
+ * not a market. Calibrated from CI's live audit (scripts/price-audit.ts) on
+ * 2026-10-12: every token above $100,000 sat within 1% of its share; between
+ * $10,000 and $60,000 gaps were 0 to 2.8%; below $10,000 they ran to 727%
+ * (Bank of America) and 17,731% (Super Micro, $3 of liquidity). 37 of 60
+ * xStocks were under the floor.
  */
 export const MIN_LIQUIDITY_USD = Number(process.env.MIN_TOKEN_LIQUIDITY_USD ?? 10_000);
 
