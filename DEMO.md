@@ -1,5 +1,10 @@
 # Demo video script (target 2:45, hard limit 3:00)
 
+> **For judges without a wallet:** open `/sim/` on the live host and press **Try the guided demo**. It plays eight real
+> turns in about 90 seconds (brief → gap verdict → thin-market honesty → token safety → a $25 buy with code and QR →
+> sleep mode set around *now* → the next buy held → the 24-hour cooling-off), each a real MCP call with its latency
+> shown. The demo account lasts 30 minutes, and its wallet is one no one holds the key to (or `DEMO_WALLET`, if set).
+
 Record on the **deployed** server with **live data**, ideally on a Saturday, a Sunday or after 8pm ET, so the
 "market closed, tokens still moving" story is happening for real. Use a real wallet (Phantom on your phone is ideal for
 the signing shot). Turn on "Speak replies aloud" in the simulator so the replies are heard, not just read.

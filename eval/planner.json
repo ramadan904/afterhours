@@ -998,6 +998,24 @@
    "args": {
     "stock": "AAPL"
    }
+  },
+  {
+   "say": "Don't let me trade between 2 pm and 5 pm",
+   "tool": "set_sleep_mode",
+   "args": {
+    "on": true,
+    "from": "2 pm",
+    "until": "5 pm"
+   }
+  },
+  {
+   "say": "Do not let me trade from 11:30 pm to 7 am",
+   "tool": "set_sleep_mode",
+   "args": {
+    "on": true,
+    "from": "11:30 pm",
+    "until": "7 am"
+   }
   }
  ]
 }

@@ -14,6 +14,9 @@
 import { esc, layout } from "./pages.js";
 
 const CSS = `
+.tour{margin-top:12px;border:1px solid #2b3566;background:#0d1430;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.tour .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.tour #tnote{color:#c9d1ef;font-size:14px;line-height:1.45}
 .sim{max-width:1180px;margin:0 auto;padding:20px 16px 48px}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:20px;margin-top:18px}
@@ -71,7 +74,7 @@ export function simulatorPage(p: { baseUrl: string; sample: boolean; polly?: boo
 <section aria-label="Simulated Echo Show">
   <div class="device"><div class="screen">
     <div class="clock"><span id="clock"></span><span id="mkt"></span></div>
-    <div class="visual" id="visual" aria-live="polite"><div class="hello">Ask about your tokenized stocks.<small>Try “What happened overnight?” Link your account first to hear your portfolio.</small></div></div>
+    <div class="visual" id="visual" aria-live="polite"><div class="hello">Ask about your tokenized stocks.<small>No wallet? Press <b>Try the guided demo</b>: eight real turns, about 90 seconds. Or link your own account.</small></div></div>
     <div id="said" class="said" hidden></div><div id="you" class="you" hidden></div>
   </div><div class="lightbar" id="light" aria-hidden="true"></div></div>
   <form class="input" id="ask" autocomplete="off">
@@ -81,12 +84,16 @@ export function simulatorPage(p: { baseUrl: string; sample: boolean; polly?: boo
     <input id="q" placeholder="“Alexa, what happened overnight?”">
     <button class="primary" type="submit">Ask</button>
   </form>
+  <div class="tour" id="tour" hidden aria-live="polite">
+    <div class="row"><span class="pill" id="tstep"></span><span id="tnote"></span></div>
+    <div class="row"><button type="button" class="primary" id="tnext">Next</button><label class="small muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tauto" checked style="width:auto"> Auto-play</label><button type="button" id="tstop">End demo</button></div>
+  </div>
   <div class="chips" id="chips"></div>
   <label class="small muted" style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="speak" checked style="width:auto"> Speak replies aloud</label>
 </section>
 <section class="panel" aria-label="Under the hood">
-  <div class="card" style="margin-top:0"><h2>Account linking</h2><div class="acct"><div id="acct" class="small">Not linked.</div><div class="row"><button id="link" class="primary">Link account</button><button id="unlink" hidden>Unlink</button></div></div>
-  <p class="small muted" style="margin:8px 0 0">OAuth 2.1 + PKCE against this server, the same flow the Alexa app runs.</p></div>
+  <div class="card" style="margin-top:0"><h2>Account linking</h2><div class="acct"><div id="acct" class="small">Not linked.</div><div class="row"><button id="demo" class="primary">Try the guided demo</button><button id="link">Link account</button><button id="unlink" hidden>Unlink</button></div></div>
+  <p class="small muted" style="margin:8px 0 0">Link account: OAuth 2.1 + PKCE against this server, the same flow the Alexa app runs. The demo uses a 30-minute demo account instead, with the same bearer-token MCP calls.</p></div>
   <div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">MCP calls</h2><span class="pill" id="planner">planner: –</span></div>
   <p class="small muted" style="margin:6px 0 0">Streamable HTTP · <span class="mono">${esc(p.baseUrl)}/mcp</span> · Alexa+ budget: 500 ms per call</p>
   <div id="trace"><p class="small muted">Each tool call shows up here with its arguments, latency and result.</p></div></div>
@@ -106,10 +113,11 @@ tick();setInterval(tick,15000);
 const b64u=buf=>btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"");
 function claims(t){try{return JSON.parse(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")))}catch{return null}}
 function showAccount(){const t=store.get("at");const c=t&&claims(t);
- if(!c){$("acct").textContent="Not linked.";$("link").hidden=false;$("unlink").hidden=true;return}
+ if(!c){$("acct").textContent="Not linked.";$("link").hidden=false;$("demo").hidden=false;$("unlink").hidden=true;return}
  const w=c.wallet?c.wallet.slice(0,4)+"…"+c.wallet.slice(-4):"no wallet";
- $("acct").innerHTML="Linked: <span class=mono>"+w+"</span> "+(c.verified?"<span class=pill>signed</span>":"<span class=pill>watch-only</span>");
- $("link").hidden=true;$("unlink").hidden=false}
+ const kind=store.get("demo");
+ $("acct").innerHTML=(c.demo?"Demo account: <span class=mono>"+w+"</span> <span class=pill>"+(kind==="throwaway"?"demo wallet · no one holds its key":kind==="configured"?"demo wallet":"sample wallet")+"</span>":"Linked: <span class=mono>"+w+"</span> "+(c.verified?"<span class=pill>signed</span>":"<span class=pill>watch-only</span>"));
+ $("link").hidden=true;$("demo").hidden=true;$("unlink").textContent=c.demo?"End demo":"Unlink";$("unlink").hidden=false}
 async function link(){const v=b64u(crypto.getRandomValues(new Uint8Array(32)));const s=b64u(crypto.getRandomValues(new Uint8Array(16)));
  store.set("pkce",v);store.set("state",s);const ch=b64u(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)));
  const u=new URL(CFG.base+"/authorize");u.search=new URLSearchParams({response_type:"code",client_id:"afterhours-simulator",redirect_uri:CFG.redirect,code_challenge:ch,code_challenge_method:"S256",state:s,scope:"market portfolio trade",resource:CFG.resource});location.href=u}
@@ -121,7 +129,7 @@ async function finishLink(){const q=new URLSearchParams(location.search);if(!q.h
  try{await tokenRequest({grant_type:"authorization_code",code:q.get("code"),redirect_uri:CFG.redirect,code_verifier:store.get("pkce"),resource:CFG.resource})}catch(e){$("acct").textContent="Linking failed: "+e.message}
  store.set("pkce",null);store.set("state",null)}
 async function refresh(){const rt=store.get("rt");if(!rt)return false;try{await tokenRequest({grant_type:"refresh_token",refresh_token:rt});return true}catch{store.set("at",null);store.set("rt",null);showAccount();return false}}
-$("link").onclick=link;$("unlink").onclick=()=>{store.set("at",null);store.set("rt",null);showAccount()};
+$("link").onclick=link;$("unlink").onclick=()=>{endTour(false);store.set("at",null);store.set("rt",null);store.set("demo",null);showAccount()};
 const light=s=>{$("light").className="lightbar "+(s||"")};
 const pct=n=>(n>0?"+":"")+n.toFixed(2)+"%";const usd=n=>"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const escH=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -174,6 +182,22 @@ if(!SR){$("mic").hidden=true}else{const rec=new SR();rec.lang="en-US";rec.interi
  rec.onresult=e=>{const r=e.results[e.results.length-1];$("q").value=r[0].transcript.replace(/^alexa,?\\s*/i,"");if(r.isFinal){ask($("q").value)}};
  rec.onend=()=>{on=false;$("mic").classList.remove("on");if($("light").className.includes("listening"))light("")};
  $("mic").onclick=()=>{if(on){rec.stop();return}speechSynthesis&&speechSynthesis.cancel();if(playing)playing.pause();on=true;$("mic").classList.add("on");light("listening");rec.start()}}
+/* The guided demo: a short-lived demo account and a tour of real turns. */
+let tour=null,ti=0,run=0;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function waitQuiet(){await sleep(700);while(("speechSynthesis" in window&&speechSynthesis.speaking)||(playing&&!playing.paused&&!playing.ended))await sleep(250);await sleep(900)}
+async function startDemo(){$("demo").disabled=true;
+ try{const r=await fetch(CFG.base+"/sim/api/demo",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({tz:Intl.DateTimeFormat().resolvedOptions().timeZone})});
+  const j=await r.json().catch(()=>({error:"The demo isn't available right now."}));if(!r.ok)throw new Error(j.error);
+  store.set("at",j.access_token);store.set("rt",null);store.set("demo",j.walletKind);showAccount();
+  tour=j.tour;ti=0;convo=[];$("tour").hidden=false;$("tnext").hidden=false;$("tstop").textContent="End demo";step()}
+ catch(e){$("acct").textContent=e.message}finally{$("demo").disabled=false}}
+async function step(){if(!tour)return;if(ti>=tour.length){endTour(true);return}
+ const me=++run;const s=tour[ti];document.querySelector(".device").scrollIntoView({block:"start",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"});$("tstep").textContent="Step "+(ti+1)+" of "+tour.length;$("tnote").textContent=s.note;$("tnext").disabled=true;
+ await ask(s.say);ti++;if(me!==run||!tour)return;$("tnext").disabled=false;$("tnext").textContent=ti>=tour.length?"Finish":"Next";
+ if($("tauto").checked){await waitQuiet();if(me===run&&tour&&$("tauto").checked)step()}}
+function endTour(done){run++;tour=null;if(done){$("tstop").textContent="Close";$("tstep").textContent="Done";$("tnote").textContent="That's the tour. Keep asking anything, or press a suggestion below. Nothing here could move money: every trade needs the wallet's own signature.";$("tnext").hidden=true}else $("tour").hidden=true}
+$("demo").onclick=startDemo;$("tnext").onclick=()=>{if(!tour){$("tour").hidden=true;return}step()};$("tstop").onclick=()=>{endTour(false)};
 showAccount();finishLink();`;
   return layout("Alexa+ simulator · Afterhours", body, {
     script,

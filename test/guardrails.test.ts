@@ -67,7 +67,7 @@ describe("sleep mode", () => {
     const { h, session, sent, at, latest } = await setup(Date.parse("2026-10-13T01:14:00Z"));
     await session.call("set_timezone", { place: "Lagos" });
     expect((await session.call("set_sleep_mode", { on: true })).text).toBe(
-      "Sleep mode is on. Between 11 p.m. and 7 a.m. Lagos time, I'll set trades aside until morning instead of preparing them, and send them to your phone when you're up.",
+      "Sleep mode is on. Between 11 p.m. and 7 a.m. Lagos time, I'll set trades aside until 7 a.m. instead of preparing them, and send them to your phone then.",
     );
     const asked = await session.call("propose_trade", buy("Tesla", 50));
     expect(asked.text).toBe(

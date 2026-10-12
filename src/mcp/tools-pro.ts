@@ -198,7 +198,7 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
           );
         }
         return say(
-          `Sleep mode is on. Between ${spokenTime(start)} and ${spokenTime(end)} ${zoneName(zone)}, I'll set trades aside until morning instead of preparing them, and send them to your phone when you're up.`,
+          `Sleep mode is on. Between ${spokenTime(start)} and ${spokenTime(end)} ${zoneName(zone)}, I'll set trades aside until ${spokenTime(end)} instead of preparing them, and send them to your phone then.`,
           data(sleep),
         );
       }),

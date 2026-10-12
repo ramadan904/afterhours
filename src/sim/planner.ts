@@ -219,6 +219,12 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const usd = amount(t);
     return { tool: "set_spending_limit", args: usd ? { daily_usd: usd } : {} };
   }
+  // "Don't let me trade between 2 pm and 5 pm": sleep mode with the hours said.
+  const TIME = "(midnight|noon|\\d{1,2}(?::\\d{2})?\\s*(?:a\\.?m\\.?|p\\.?m\\.?)?)";
+  const window = new RegExp(`\\b(?:between|from)\\s+${TIME}\\s+(?:and|to|until|till)\\s+${TIME}`).exec(t);
+  if (window && /\b(don'?t|do not|stop me from|no) (let me )?(trade|trading|buy|buying)\b/.test(t)) {
+    return { tool: "set_sleep_mode", args: { on: true, from: window[1].trim(), until: window[2].trim() } };
+  }
   if (/\bsleep mode\b|\b(trade|trading|buy|buying) at night\b/.test(t)) {
     if (/\b(off|disable|stop)\b/.test(t)) return { tool: "set_sleep_mode", args: { on: false } };
     if (/\bis\b.*\bon\b|\?$/.test(t) && !/\b(turn|set|don'?t)\b/.test(t)) return { tool: "set_sleep_mode", args: {} };

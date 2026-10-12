@@ -21,6 +21,14 @@ nobody can tell them what's going on. Afterhours closes that gap with Alexa:
 
 ![The Afterhours Alexa+ simulator: an overnight briefing with the MCP call trace](media/simulator.png)
 
+**No wallet? Try the guided demo.** Open `/sim/` and press **Try the guided demo**. Eight real turns play in about 90
+seconds through the same planner and MCP endpoint: the overnight brief, a gap read as a bet on the open, a token too
+thin to price ("I'd leave it alone until there's a market"), what the issuer can do on chain, a $25 buy prepared for
+signing (code, QR, `ui://` card), then a guardrail set *around the current time* that holds the next buy, and won't
+come off for 24 hours.
+
+![Guided demo, step 4: a $25 Apple buy prepared for signing, with its code, QR and the ui://afterhours/trade card](media/simulator-demo-trade.png)
+
 **Voice proposes, wallet disposes.** Alexa can *propose* a trade, but it can never execute one. Afterhours holds no
 keys. A trade only happens when you open the confirm page, see a fresh quote, and sign it in your own wallet. A misheard
 "fifty", or a TV talking in the background, can't move money.
