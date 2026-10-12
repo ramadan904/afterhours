@@ -18,11 +18,24 @@ import type { TradeIntent } from "../chain/trade.js";
 import { fail, say, type Result } from "./result.js";
 import { COOLING_OFF_MS, DEFAULT_SLEEP, getGuardrails, setDailyLimit, setSleep, spentToday } from "../chain/guardrails.js";
 import { getZone, zoneName } from "../market/zones.js";
-import { clockTime, usd } from "../market/speech.js";
+import { capitalise, clockTime, usd } from "../market/speech.js";
 import { parseTime, spokenTime } from "../notify/briefing.js";
 import { addPlan, cadencePhrase, listPlans, MAX_PLANS, parseWeekday, planRecord, removePlans, type Cadence } from "../chain/recurring.js";
 import { listingByTicker, resolveSymbol } from "../market/universe.js";
 import { listSubscriptions } from "../notify/push.js";
+import { readBasis } from "../chain/basis.js";
+
+/** Like tools.ts's `within`: an optional extra must never cost the voice turn its budget. */
+async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([work.catch(() => null), new Promise<null>((r) => (timer = setTimeout(() => r(null), ms)))]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const pctOf = (x: number) => `${(Math.abs(x) * 100).toFixed(1)} percent`;
 
 export interface ToolKit {
   guard: (fn: () => Promise<Result>) => Promise<Result>;
@@ -256,6 +269,117 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
           stopped: removed.map((p) => p.ticker),
           remaining,
         });
+      }),
+  );
+
+  server.registerTool(
+    "my_returns",
+    {
+      title: "What I paid and what I've made",
+      description:
+        "How much the user has made or lost on what they hold, against what they actually paid: reconstructed from their wallet's own Solana history (each buy and sale paired with the USDC that moved), at average cost. Use for 'how much have I made on Nvidia?', 'am I up overall?', 'what did I pay for my Tesla?'.",
+      inputSchema: { stock: z.string().optional().describe("One stock, or omit for the whole portfolio.") },
+      outputSchema: {
+        positions: z.array(
+          z.object({
+            ticker: z.string(),
+            held: z.number(),
+            averageCost: z.number().nullable(),
+            price: z.number(),
+            costUsd: z.number(),
+            valueUsd: z.number(),
+            gainUsd: z.number(),
+            gainPercent: z.number().nullable(),
+            realizedUsd: z.number(),
+            buys: z.number(),
+            sells: z.number(),
+            uncostedQty: z.number(),
+          }),
+        ),
+        totalCostUsd: z.number(),
+        totalValueUsd: z.number(),
+        totalGainUsd: z.number(),
+        transactionsRead: z.number(),
+        complete: z.boolean().describe("False when older history exists than was read."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ stock }) =>
+      guard(async () => {
+        const wallet = caller.wallet ?? (svc.sample ? "" : null);
+        if (wallet === null) return fail("No wallet is linked yet. Link one in the Alexa app and I can read what you paid from its history.");
+        const only = stock ? resolveSymbol(stock) : null;
+        if (stock && !only) return fail(`I don't have a tokenized stock for "${stock}".`);
+        const [basis, holdings, { board, readings }] = await Promise.all([within(readBasis(svc, wallet), 450), within(svc.holdings.read(wallet), 450), kit.allReadings()]);
+        if (!basis) return fail("I'm reading your wallet's history on Solana for the first time. Ask me again in a minute.");
+        if (!holdings) return fail("I couldn't read your wallet's balances just now. Try again in a moment.");
+        const price = new Map(readings.map((r) => [r.ticker, r.tokenPrice]));
+        const rows = holdings
+          .filter((h) => (!only || h.ticker === only.ticker) && price.has(h.ticker))
+          .map((h) => {
+            const b = basis.positions[h.ticker];
+            const avg = b && b.coveredQty > 1e-9 ? b.cost / b.coveredQty : null;
+            const costed = avg === null ? 0 : Math.min(h.amount, b!.coveredQty);
+            const p = price.get(h.ticker)!;
+            const cost = avg === null ? 0 : avg * costed;
+            const gain = avg === null ? 0 : (p - avg) * costed;
+            return {
+              ticker: h.ticker,
+              held: h.amount,
+              averageCost: avg === null ? null : Math.round(avg * 100) / 100,
+              price: p,
+              costUsd: Math.round(cost * 100) / 100,
+              valueUsd: Math.round(h.amount * p * 100) / 100,
+              gainUsd: Math.round(gain * 100) / 100,
+              gainPercent: cost > 0 ? Math.round((gain / cost) * 10_000) / 100 : null,
+              realizedUsd: Math.round((b?.realized ?? 0) * 100) / 100,
+              buys: b?.buys ?? 0,
+              sells: b?.sells ?? 0,
+              uncostedQty: Math.max(0, h.amount - costed),
+            };
+          });
+        const totalCost = rows.reduce((t, r) => t + r.costUsd, 0);
+        const totalGain = rows.reduce((t, r) => t + r.gainUsd, 0);
+        const data = {
+          positions: rows,
+          totalCostUsd: Math.round(totalCost * 100) / 100,
+          totalValueUsd: Math.round(rows.reduce((t, r) => t + r.valueUsd, 0) * 100) / 100,
+          totalGainUsd: Math.round(totalGain * 100) / 100,
+          transactionsRead: basis.transactions,
+          complete: !basis.truncated,
+        };
+        const note = board.source === "sample" ? "Using sample data. " : "";
+        const upDown = (g: number) => `${g >= 0 ? "up" : "down"} ${usd(Math.abs(g))}`;
+        const uncosted = rows.filter((r) => r.uncostedQty > 1e-6);
+        const caveat = uncosted.length
+          ? ` Some of your ${uncosted.map((r) => listingByTicker(r.ticker)?.token).join(" and ")} arrived without a USDC payment, so I don't know what it cost and left it out.`
+          : "";
+        const partial = basis.truncated ? ` That's from your last ${basis.transactions} transactions.` : "";
+        if (only) {
+          const r = rows[0];
+          if (!r) return say(`${note}You don't hold any ${only.spoken} right now.`, data);
+          const name = only.spoken;
+          if (r.averageCost === null) return say(`${note}You hold ${r.held} ${only.token}, but none of it came from a USDC purchase I can see, so I can't say what you paid.${partial}`, data);
+          const trades = `${r.buys === 1 ? "once" : `${r.buys} times`}${r.sells ? ` and sold ${r.sells === 1 ? "once" : `${r.sells} times`}` : ""}`;
+          const realized = Math.abs(r.realizedUsd) >= 1 ? ` Sales ${r.realizedUsd >= 0 ? "locked in another" : "cost you"} ${usd(Math.abs(r.realizedUsd))}.` : "";
+          return say(
+            `${note}You've bought ${name} ${trades}, paying an average of ${usd(r.averageCost)} a token. At ${usd(r.price)} now, what you hold is ${upDown(r.gainUsd)}, or ${r.gainPercent! >= 0 ? "" : "minus "}${pctOf(r.gainPercent! / 100)}.${realized}${caveat}${partial}`,
+            data,
+          );
+        }
+        if (!rows.length) return say(`${note}You don't hold any tokenized stocks right now.`, data);
+        const ranked = rows.filter((r) => r.gainPercent !== null).sort((a, b) => b.gainPercent! - a.gainPercent!);
+        const name = (t: string) => listingByTicker(t)?.spoken ?? t;
+        const best = ranked[0];
+        const worst = ranked.at(-1);
+        const spread =
+          ranked.length > 1
+            ? ` ${capitalise(name(best.ticker))} has done best, ${best.gainPercent! >= 0 ? "up" : "down"} ${pctOf(best.gainPercent! / 100)}; ${name(worst!.ticker)} ${worst!.gainPercent! >= 0 ? "the least, up" : "is down"} ${pctOf(worst!.gainPercent! / 100)}.`
+            : "";
+        return say(
+          `${note}You paid ${usd(totalCost)} for what you hold, and it's ${upDown(totalGain)}${totalCost > 0 ? `, ${pctOf(totalGain / totalCost)}` : ""}, read from your wallet's history on Solana.${spread}${caveat}${partial}`,
+          data,
+        );
       }),
   );
 }

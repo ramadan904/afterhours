@@ -14,7 +14,7 @@ export interface FakeState {
   /** Wallet → ticker → human amount. */
   balances: Record<string, Record<string, number>>;
   /** Signature → fee payer, outcome, and the blockhash it was built against. */
-  transactions: Record<string, { payer: string; err?: unknown; blockhash?: string; blockTime?: number }>;
+  transactions: Record<string, { payer: string; err?: unknown; blockhash?: string; blockTime?: number; deltas?: Record<string, number> }>;
   /** Blockhashes of the swap transactions built, newest last. */
   built?: string[];
   /** ISO time of the share leg's last print. */
@@ -79,8 +79,11 @@ export function fakeUpstreams(state: FakeState) {
     }
 
     if (body?.jsonrpc === "2.0" && body.method === "getSignaturesForAddress") {
-      const mine = Object.entries(state.transactions).filter(([, t]) => t.payer === body.params[0]);
-      return json({ jsonrpc: "2.0", id: body.id, result: mine.reverse().map(([signature, t]) => ({ signature, blockTime: t.blockTime ?? null, err: t.err ?? null })) });
+      const mine = Object.entries(state.transactions).filter(([, t]) => t.payer === body.params[0]).reverse();
+      const until = body.params[1]?.until;
+      const stop = until ? mine.findIndex(([signature]) => signature === until) : -1;
+      const page = stop >= 0 ? mine.slice(0, stop) : mine;
+      return json({ jsonrpc: "2.0", id: body.id, result: page.map(([signature, t]) => ({ signature, blockTime: t.blockTime ?? null, err: t.err ?? null })) });
     }
 
     if (body?.jsonrpc === "2.0" && body.method === "getTransaction" && body.params[1]?.encoding === "base64") {
@@ -94,7 +97,17 @@ export function fakeUpstreams(state: FakeState) {
       return json({
         jsonrpc: "2.0",
         id: body.id,
-        result: tx ? { meta: { err: tx.err ?? null }, transaction: { message: { accountKeys: [{ pubkey: tx.payer, signer: true }] } } } : null,
+        result: tx
+          ? {
+              meta: {
+                err: tx.err ?? null,
+                // Balances before and after, owned by the payer: 1000 of each mint, then 1000 + delta.
+                preTokenBalances: Object.keys(tx.deltas ?? {}).map((mint, i) => ({ accountIndex: i + 1, mint, owner: tx.payer, uiTokenAmount: { uiAmount: 1000, uiAmountString: "1000" } })),
+                postTokenBalances: Object.entries(tx.deltas ?? {}).map(([mint, d], i) => ({ accountIndex: i + 1, mint, owner: tx.payer, uiTokenAmount: { uiAmount: 1000 + d, uiAmountString: String(1000 + d) } })),
+              },
+              transaction: { message: { accountKeys: [{ pubkey: tx.payer, signer: true }] } },
+            }
+          : null,
       });
     }
 
