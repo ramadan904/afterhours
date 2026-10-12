@@ -25,6 +25,7 @@ import { confirmPage, errorPage, landingPage } from "./pages.js";
 import { simulatorPage } from "./simulator.js";
 import { tradeApi } from "./trade-api.js";
 import { simulatorTurn } from "./sim-api.js";
+import { pollyEnabled, speak } from "../sim/voice.js";
 import { qrSvg } from "./qr.js";
 import { accountApi } from "./account-api.js";
 import { companionPage } from "./companion.js";
@@ -176,8 +177,9 @@ export function createApp(svc: Services) {
       if (path.startsWith("/icons/")) return icon(path) ?? errorPage("There's nothing here.", 404);
       if (path === "/api/cron/tape") return await cronTape(svc, request);
       if (path === "/sim") return Response.redirect(`${svc.baseUrl}/sim/${url.search}`, 301);
-      if (path === "/sim/" && method === "GET") return simulatorPage({ baseUrl: svc.baseUrl, sample: svc.sample });
+      if (path === "/sim/" && method === "GET") return simulatorPage({ baseUrl: svc.baseUrl, sample: svc.sample, polly: pollyEnabled() });
       if (path === "/sim/api/turn" && method === "POST") return await simulatorTurn(svc, request);
+      if (path === "/sim/api/speak" && method === "POST") return await speak(svc, request);
 
       if (path === "/health") {
         const started = performance.now();

@@ -29,6 +29,10 @@ Parameters:
     Default: ""
     Description: Comma-separated redirect URIs Alexa shows for account linking (optional).
 
+  PollyVoice:
+    Type: String
+    Default: Ruth
+    Description: Amazon Polly voice for the simulator (generative or neural, en-US), e.g. Ruth, Matthew, Danielle.
   AlarmEmail:
     Type: String
     Default: ""
@@ -115,6 +119,10 @@ Resources:
                   - bedrock:InvokeModelWithResponseStream
                   - bedrock-mantle:*
                 Resource: "*"
+              # The simulator speaks its replies with Amazon Polly.
+              - Effect: Allow
+                Action: polly:SynthesizeSpeech
+                Resource: "*"
               # Metrics are published to the Afterhours namespace only.
               - Effect: Allow
                 Action: cloudwatch:PutMetricData
@@ -156,6 +164,8 @@ Resources:
               - { Name: ALEXA_CLIENT_ID, Value: !Ref AlexaClientId }
               - { Name: ALEXA_REDIRECT_URIS, Value: !Ref AlexaRedirectUris }
               - { Name: METRICS, Value: cloudwatch }
+              - { Name: POLLY, Value: "on" }
+              - { Name: POLLY_VOICE, Value: !Ref PollyVoice }
             RuntimeEnvironmentSecrets:
               - { Name: AUTH_SECRET, Value: !Ref AuthSecret }
               - { Name: CRON_SECRET, Value: !Ref CronSecret }

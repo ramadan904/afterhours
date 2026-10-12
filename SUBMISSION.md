@@ -117,6 +117,8 @@ Afterhours deploys to AWS with one command (`scripts/deploy-aws.sh` → `infra/a
   samples, alerts fired, pushes sent and trades confirmed (`src/obs/metrics.ts`). The stack draws a dashboard against
   the 500 ms budget and alarms, through **Amazon SNS**, when p95 passes 400 ms or the tape sampler goes quiet for 15
   minutes (which would mean alerts, briefings and settlement have stopped).
+- **Amazon Polly:** the simulator speaks each reply with a Polly voice (generative engine, neural as fallback; `Ruth`
+  by default), so the demo sounds the same on any laptop; the browser's own voice is the fallback (`src/sim/voice.ts`).
 - **Measured planner:** `scripts/eval-planner.ts --bedrock` scores Claude on Bedrock on 171 utterances (139 + 32
   held out) by tool and arguments; a CI job runs it through GitHub OIDC when an AWS role is configured. The scripted
   fallback scores 99% on what it was tuned on and 50% held out, which is the case for Bedrock in one number.

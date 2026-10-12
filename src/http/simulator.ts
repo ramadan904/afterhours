@@ -62,7 +62,7 @@ const CSS = `
 .disclaimer{font-size:12px;color:var(--muted);margin-top:16px}
 `;
 
-export function simulatorPage(p: { baseUrl: string; sample: boolean }): Response {
+export function simulatorPage(p: { baseUrl: string; sample: boolean; polly?: boolean }): Response {
   const body = `<div class="sim">
 <header class="top"><a class="brand" href="/"><span class="moon" aria-hidden="true"></span>Afterhours <span class="pill" style="margin-left:6px">Alexa+ simulator · unofficial</span></a>
 <span class="pill">${p.sample ? "Sample data" : "Live data · Solana mainnet"}</span></header>
@@ -93,7 +93,7 @@ export function simulatorPage(p: { baseUrl: string; sample: boolean }): Response
   <p class="disclaimer">Unofficial simulator for development and demos. Alexa and Echo are trademarks of Amazon; this page is not made or endorsed by Amazon. Not investment advice.</p>
 </section></div></main></div>`;
 
-  const cfg = JSON.stringify({ base: p.baseUrl, resource: `${p.baseUrl}/mcp`, redirect: `${p.baseUrl}/sim/` }).replace(/</g, "\\u003c");
+  const cfg = JSON.stringify({ base: p.baseUrl, resource: `${p.baseUrl}/mcp`, redirect: `${p.baseUrl}/sim/`, polly: Boolean(p.polly) }).replace(/</g, "\\u003c");
   const script = `
 const CFG=${cfg};const $=id=>document.getElementById(id);
 const store={get(k){try{return sessionStorage.getItem(k)}catch{return null}},set(k,v){try{v==null?sessionStorage.removeItem(k):sessionStorage.setItem(k,v)}catch{}}};
@@ -152,7 +152,13 @@ function visual(step,reply){const d=step&&step.structured;const v=$("visual");if
 function trace(turn){const t=$("trace");$("planner").textContent="planner: "+turn.planner+(turn.fallbackReason?" (fallback)":"");
  if(!turn.steps.length){t.innerHTML="<p class='small muted'>No tool call for that.</p>";return}
  t.innerHTML=turn.steps.map(s=>"<div class=step><header><span class=name>"+escH(s.tool)+"</span><span class='ms "+(s.ms<500?"ok":"slow")+"'>"+s.ms+" ms</span></header><div class=args>"+escH(JSON.stringify(s.args))+(s.ui?" <span class=pill title='MCP Apps card rendered on the screen'>"+escH(s.ui.uri)+"</span>":"")+"</div><pre>"+escH(s.text)+"</pre>"+(s.structured?"<details><summary class='small muted'>structuredContent</summary><pre>"+escH(JSON.stringify(s.structured,null,2))+"</pre></details>":"")+"</div>").join("")}
-function say(text){if(!$("speak").checked||!("speechSynthesis" in window)){light("");return}
+// Amazon Polly when the server has it, the browser's own voice otherwise (or if Polly fails).
+let playing=null;
+async function say(text){if(!$("speak").checked){light("");return}
+ if(CFG.polly){try{const r=await fetch(CFG.base+"/sim/api/speak",{method:"POST",headers:{"content-type":"application/json",authorization:"Bearer "+(store.get("at")||"")},body:JSON.stringify({text})});
+  if(r.ok){if(playing)playing.pause();const url=URL.createObjectURL(await r.blob());playing=new Audio(url);playing.onplay=()=>light("speaking");playing.onended=()=>{light("");URL.revokeObjectURL(url)};await playing.play();return}}catch(e){}}
+ browserSay(text)}
+function browserSay(text){if(!("speechSynthesis" in window)){light("");return}
  speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.rate=1.02;const en=speechSynthesis.getVoices().find(v=>/en-US/.test(v.lang)&&/Samantha|Google US|Joanna|Aria|Jenny/.test(v.name));if(en)u.voice=en;
  u.onstart=()=>light("speaking");u.onend=()=>light("");speechSynthesis.speak(u)}
 async function ask(text){text=text.trim();if(!text)return;$("q").value="";$("you").hidden=false;$("you").textContent="You: “"+text+"”";$("said").hidden=true;light("thinking");
@@ -167,7 +173,7 @@ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 if(!SR){$("mic").hidden=true}else{const rec=new SR();rec.lang="en-US";rec.interimResults=true;let on=false;
  rec.onresult=e=>{const r=e.results[e.results.length-1];$("q").value=r[0].transcript.replace(/^alexa,?\\s*/i,"");if(r.isFinal){ask($("q").value)}};
  rec.onend=()=>{on=false;$("mic").classList.remove("on");if($("light").className.includes("listening"))light("")};
- $("mic").onclick=()=>{if(on){rec.stop();return}speechSynthesis&&speechSynthesis.cancel();on=true;$("mic").classList.add("on");light("listening");rec.start()}}
+ $("mic").onclick=()=>{if(on){rec.stop();return}speechSynthesis&&speechSynthesis.cancel();if(playing)playing.pause();on=true;$("mic").classList.add("on");light("listening");rec.start()}}
 showAccount();finishLink();`;
   return layout("Alexa+ simulator · Afterhours", body, {
     script,
