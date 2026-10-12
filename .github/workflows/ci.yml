@@ -54,3 +54,14 @@ jobs:
           docker run -d --name ah -p 8080:8080 -e AUTH_SECRET="$(openssl rand -base64 48)" -e AFTERHOURS_DATA=sample afterhours
           for i in $(seq 1 20); do curl -sf localhost:8080/health && exit 0; sleep 1; done
           docker logs ah; exit 1
+  # Accessibility: axe-core (WCAG 2 A/AA + best practices) on every page, both themes.
+  a11y:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright-core install --with-deps chromium
+      - run: AFTERHOURS_DATA=sample npx tsx src/node.ts & sleep 5
+      - run: node e2e/a11y.mjs

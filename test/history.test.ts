@@ -71,7 +71,8 @@ describe("daily refresh from public sources", () => {
     }) as typeof fetch;
     await h.svc.store.set("opens:NVDA", [{ date: "old", prevClose: 1, tokenPreOpen: 1, shareOpen: 1, overnightBps: 0, openBps: 0 }]);
     const result = await refreshOpenHistory(h.svc, fake, 0);
-    expect(result.failed).toEqual(["NVDA"]);
+    expect(result.failed).toContain("NVDA");
+    expect(result.failed).not.toContain("TSLA");
     expect(result.updated).toContain("TSLA");
     expect((await readOpens(h.svc, "TSLA"))[0]).toMatchObject({ date: "2026-10-09", overnightBps: 49.5, openBps: 0 });
     expect((await readOpens(h.svc, "NVDA"))[0].date).toBe("old");

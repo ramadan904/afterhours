@@ -65,7 +65,7 @@ describe("MCP over Streamable HTTP", () => {
     expect(flat.text).toContain("in line with Friday's close");
     const unknown = await session.call("check_stock", { stock: "Blockbuster" });
     expect(unknown.isError).toBe(true);
-    expect(unknown.text).toContain("I can check Tesla");
+    expect(unknown.text).toContain("I can check 68 names, Tesla");
   });
 
   it("reads the linked portfolio and its overnight change", async () => {

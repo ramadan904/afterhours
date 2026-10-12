@@ -50,6 +50,11 @@ amount, or a TV talking in the background, can't move money. **Voice proposes, w
   confirm page builds a Jupiter swap for the *linked* wallet only, and the user's wallet signs and sends it through the
   Wallet Standard (no Solana library or CDN script on the page). A trade is reported confirmed only after Solana shows
   it succeeded *and* the linked wallet paid for it, so a reported signature alone proves nothing.
+- **Track record, from real data:** for every market open in the last month, Afterhours compares where the token
+  traded at 9 a.m. Eastern (GeckoTerminal pool candles) with where the share actually opened (Yahoo bars). First real
+  run, in CI on 2026-10-11: **Tesla, 20 opens, 18 meaningful overnight moves, and the share opened the same way all
+  18 times, with a median miss of 0.41%.** So "its token has called the open's direction 18 of the last 18 times" is
+  a measured statement, not a slogan.
 - **Overnight tape:** the board is sampled every 5 minutes; alerts are checked on every sample and stamped when they
   first cross, so the morning briefing can say "your Tesla alert went off at 2:14 a.m." even if the move has faded,
   and a stock check tells the night's story (peak, when, and whether it faded).
@@ -65,8 +70,8 @@ amount, or a TV talking in the background, can't move money. **Voice proposes, w
 
 Everything in this repo is new for this hackathon. One module is reused from the author's earlier project
 [Kolu](https://github.com/ramadan904/kolu) (started 2026-09-21, also inside the submission window): the NYSE
-calendar/session classifier (`src/market/calendar.ts`, `session.ts`), copied in unchanged. The xStock mint list was
-verified in Kolu's pipeline. The MCP server, OAuth/wallet linking, tools, speech layer, trade proposals, confirm
+calendar/session classifier (`src/market/calendar.ts`, `session.ts`), copied in unchanged. The 12 core xStock mints were
+verified in Kolu's pipeline; the other 56 were discovered and verified here, in CI (`discover-universe.yml`). The MCP server, OAuth/wallet linking, tools, speech layer, trade proposals, confirm
 page, simulator, Bedrock planner, conformance script and tests were all written here.
 
 ## AWS Builder

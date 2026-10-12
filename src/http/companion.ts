@@ -44,24 +44,25 @@ export function companionPage(p: { baseUrl: string; sample: boolean }): Response
   const cfg = JSON.stringify({ base: p.baseUrl, resource: `${p.baseUrl}/mcp`, redirect: `${p.baseUrl}/app/`, universe, sample: p.sample }).replace(/</g, "\\u003c");
 
   const body = `<div class="app">
-<div class="bar"><a class="brand" href="/"><span class="moon" aria-hidden="true"></span>Afterhours</a>
-<div class="chip" id="who" hidden><span id="whoText" class="mono"></span><button class="link" id="signout">Sign out</button></div></div>
+<header class="bar"><a class="brand" href="/"><span class="moon" aria-hidden="true"></span>Afterhours</a>
+<div class="chip" id="who" hidden><span id="whoText" class="mono"></span><button class="link" id="signout">Sign out</button></div></header>
 
-<section id="out" hidden><div class="hero">
+<main id="out" hidden><div class="hero">
 <h1>Your tokenized stocks, at any hour.</h1>
 <p class="muted">The same Afterhours you talk to, on a screen: the shape of the night, your alerts, and a phone that wakes you when one goes off.</p>
 <button class="primary" id="signin">Sign in with your wallet</button>
 ${p.sample ? `<p class="small muted">This server runs on sample data; you can sign in with the sample portfolio.</p>` : ""}
-</div></section>
+</div></main>
 
 <main id="in" hidden>
+<h1 class="sr-only">Your Afterhours</h1>
 <p class="status" id="status" aria-live="polite"></p>
 <section class="sec" aria-labelledby="pTitle"><h2 id="pTitle">Your portfolio</h2><div id="portfolio"><p class="empty">Loading…</p></div></section>
 <section class="sec" aria-labelledby="mTitle"><h2 id="mTitle">Biggest moves</h2><div id="movers"><p class="empty">Loading…</p></div></section>
 <section class="sec" aria-labelledby="aTitle"><h2 id="aTitle">Alerts</h2><div id="alerts"></div>
-<form class="form" id="alertForm"><label class="sr" for="aStock" style="position:absolute;left:-9999px">Stock</label><select id="aStock"></select>
-<label for="aKind" style="position:absolute;left:-9999px">Kind</label><select id="aKind"><option value="percent">moves %</option><option value="price">price $</option></select>
-<label for="aValue" style="position:absolute;left:-9999px">Value</label><input id="aValue" type="number" step="any" min="0" required placeholder="2">
+<form class="form" id="alertForm"><label class="sr-only" for="aStock">Stock</label><select id="aStock"></select>
+<label class="sr-only" for="aKind">Kind</label><select id="aKind"><option value="percent">moves %</option><option value="price">price $</option></select>
+<label class="sr-only" for="aValue">Value</label><input id="aValue" type="number" step="any" min="0" required placeholder="2">
 <button class="primary" type="submit">Add</button></form><p id="alertMsg" class="small" role="status"></p></section>
 <section class="sec" aria-labelledby="tTitle"><h2 id="tTitle">Latest trade</h2><div id="trade"><p class="empty">No trade yet. Say "buy 25 dollars of Apple" to Alexa.</p></div></section>
 <section class="sec" aria-labelledby="nTitle"><h2 id="nTitle">Notifications</h2><p id="pushText" class="muted" style="margin:0 0 10px">Get your alerts on this device the moment they go off, even at 2 a.m.</p>

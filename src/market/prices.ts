@@ -68,11 +68,13 @@ export class JupiterPrices implements PriceSource {
     this.timeoutMs = options.timeoutMs ?? 2500;
   }
 
-  async read(): Promise<Board> {
-    const ids = LISTINGS.map((l) => l.mint).join(",");
+  /** Jupiter's price endpoint takes at most 50 ids a call. */
+  static readonly MAX_IDS = 50;
+
+  private async fetchChunk(mints: string[]): Promise<Record<string, unknown>> {
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.endpoint}/price/v3?ids=${ids}`, {
+      res = await this.fetchImpl(`${this.endpoint}/price/v3?ids=${mints.join(",")}`, {
         signal: AbortSignal.timeout(this.timeoutMs),
         headers: { accept: "application/json" },
       });
@@ -80,8 +82,19 @@ export class JupiterPrices implements PriceSource {
       throw new PriceSourceError(`Jupiter prices unreachable: ${(err as Error).message}`);
     }
     if (!res.ok) throw new PriceSourceError(`Jupiter prices: HTTP ${res.status}`);
+    return ((await res.json()) as Record<string, unknown>) ?? {};
+  }
 
-    const body = (await res.json()) as Record<string, unknown>;
+  async read(): Promise<Board> {
+    const mints = LISTINGS.map((l) => l.mint);
+    const chunks: string[][] = [];
+    for (let i = 0; i < mints.length; i += JupiterPrices.MAX_IDS) chunks.push(mints.slice(i, i + JupiterPrices.MAX_IDS));
+    // Chunks are read in parallel; one failing chunk costs only its names, so
+    // the board degrades rather than going dark. All failing is an outage.
+    const settled = await Promise.allSettled(chunks.map((c) => this.fetchChunk(c)));
+    const ok = settled.filter((r): r is PromiseFulfilledResult<Record<string, unknown>> => r.status === "fulfilled");
+    if (ok.length === 0) throw (settled[0] as PromiseRejectedResult).reason;
+    const body = Object.assign({}, ...ok.map((r) => r.value)) as Record<string, unknown>;
     const quotes = new Map<string, PairQuote>();
     for (const l of LISTINGS) {
       const row = body?.[l.mint] as Record<string, unknown> | undefined;
@@ -125,6 +138,29 @@ export const SAMPLE_BOARD: Record<string, { share: number; moveBps: number }> = 
   COIN: { share: 192.5, moveBps: 388 },
   MSTR: { share: 151.4, moveBps: 301 },
   CRCL: { share: 90.0, moveBps: 122 },
+  // The wider universe, at illustrative levels (not observed prices): the
+  // same weekend, so chips and leverage lean up with the risk-on names while
+  // the defensives drift lower. Kept smaller than the core moves so the
+  // story above still leads the brief.
+  AMD: { share: 212, moveBps: 74 }, MU: { share: 198, moveBps: 81 }, AVGO: { share: 341, moveBps: 62 },
+  TSM: { share: 298, moveBps: 55 }, ASML: { share: 1012, moveBps: 48 }, MRVL: { share: 86, moveBps: 69 },
+  ARM: { share: 161, moveBps: 77 }, SMCI: { share: 46, moveBps: 88 }, INTC: { share: 37, moveBps: 35 },
+  PLTR: { share: 182, moveBps: 84 }, APP: { share: 612, moveBps: 71 }, GME: { share: 24, moveBps: 66 },
+  SHOP: { share: 158, moveBps: 52 }, CRWD: { share: 476, moveBps: 41 }, UBER: { share: 94, moveBps: 29 },
+  ORCL: { share: 281, moveBps: 58 }, NFLX: { share: 116, moveBps: 46 }, BABA: { share: 168, moveBps: 64 },
+  TQQQ: { share: 104, moveBps: 89 }, IWM: { share: 246, moveBps: 38 }, VTI: { share: 331, moveBps: 33 },
+  JPM: { share: 309, moveBps: 17 }, BAC: { share: 51, moveBps: 21 }, GS: { share: 784, moveBps: 33 },
+  V: { share: 344, moveBps: 8 }, CRM: { share: 246, moveBps: 23 }, IBM: { share: 289, moveBps: 11 },
+  CSCO: { share: 71, moveBps: 6 }, ACN: { share: 252, moveBps: 4 }, HD: { share: 391, moveBps: 7 },
+  HON: { share: 211, moveBps: 2 }, LIN: { share: 468, moveBps: 1 }, DIS: { share: 114, moveBps: 14 },
+  SBUX: { share: 86, moveBps: 3 }, CMCSA: { share: 31, moveBps: -3 }, NKE: { share: 67, moveBps: -7 },
+  XOM: { share: 116, moveBps: 12 }, CVX: { share: 154, moveBps: 9 }, GLD: { share: 382, moveBps: -26 },
+  KO: { share: 69, moveBps: -18 }, PEP: { share: 146, moveBps: -22 }, PG: { share: 151, moveBps: -15 },
+  JNJ: { share: 189, moveBps: -12 }, MCD: { share: 301, moveBps: -9 }, WMT: { share: 104, moveBps: -6 },
+  MRK: { share: 86, moveBps: -24 }, PFE: { share: 25, moveBps: -31 }, ABBV: { share: 228, moveBps: -11 },
+  LLY: { share: 948, moveBps: -38 }, NVO: { share: 54, moveBps: -57 }, UNH: { share: 332, moveBps: -44 },
+  MDT: { share: 96, moveBps: -8 }, ABT: { share: 131, moveBps: -5 }, TMO: { share: 561, moveBps: -14 },
+  DHR: { share: 201, moveBps: -10 }, AZN: { share: 84, moveBps: -19 },
 };
 
 export class SamplePrices implements PriceSource {

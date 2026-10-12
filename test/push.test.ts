@@ -3,7 +3,7 @@ import { createECDH, randomBytes } from "node:crypto";
 import webpush from "web-push";
 import { BASE, harness, linkWallet, mcp, SUNDAY } from "./helpers.js";
 import { validSubscription, vapidKeys, type PushSender, type PushSubscription } from "../src/notify/push.js";
-import { recordTape, sampleTape, TAPE_KEY } from "../src/market/tape.js";
+import { recordTape, sampleTape, writeTape } from "../src/market/tape.js";
 
 function browserSubscription(host = "fcm.googleapis.com"): PushSubscription {
   const ecdh = createECDH("prime256v1");
@@ -109,7 +109,7 @@ describe("web push plumbing", () => {
 
   it("serves the night's tape for a chart", async () => {
     const h = harness();
-    await h.svc.store.set(TAPE_KEY, sampleTape(SUNDAY));
+    await writeTape(h.svc.store, sampleTape(SUNDAY));
     const tape = await (await h.app(new Request(`${BASE}/api/tape?ticker=coinbase`))).json();
     expect(tape.ticker).toBe("COIN");
     expect(tape.points.length).toBeGreaterThan(100);

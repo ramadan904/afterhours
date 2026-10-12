@@ -49,7 +49,7 @@ export function toolUiMeta(tool: string): Record<string, unknown> | undefined {
 
 const CSS = `
 :root{--bg:#0f1733;--ink:#e9ecf7;--muted:#9aa4c4;--line:#26305a;--track:#1a2244;--up:#4ade80;--down:#f87171;--accent:#ffb547;color-scheme:dark}
-:root[data-theme=light]{--bg:#ffffff;--ink:#141a2e;--muted:#5b6380;--line:#e2ddd0;--track:#efece4;--up:#15803d;--down:#b91c1c;--accent:#b86e00;color-scheme:light}
+:root[data-theme=light]{--bg:#ffffff;--ink:#141a2e;--muted:#5b6380;--line:#e2ddd0;--track:#efece4;--up:#15803d;--down:#b91c1c;--accent:#9a5c00;color-scheme:light}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 main{padding:16px 18px}
 .label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}

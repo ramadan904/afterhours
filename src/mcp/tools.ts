@@ -56,7 +56,7 @@ function fail(text: string): Result {
   return { content: [{ type: "text", text }], isError: true };
 }
 
-const KNOWN = "Tesla, Nvidia, Apple, Microsoft, Meta, Amazon, Alphabet, Coinbase, Strategy, Circle, the S&P 500 or the Nasdaq 100";
+const KNOWN = `${LISTINGS.length} names, Tesla, Nvidia, Apple, Netflix, Palantir and the S&P 500 among them`;
 
 function unknownStock(said: string): Result {
   return fail(`I don't have a tokenized stock for "${said}". I can check ${KNOWN}.`);
@@ -547,7 +547,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const verdict = verdictSentence(r, new Date(now), zone);
         const range =
           r.kind === "overnight_move" || r.kind === "in_line"
-            ? overnightRange(await readTape(svc), r.ticker, r.closedAt ?? now - 16 * 3600_000)
+            ? overnightRange(await readTape(svc, r.closedAt ?? now - 16 * 3600_000), r.ticker, r.closedAt ?? now - 16 * 3600_000)
             : null;
         const track = r.kind === "overnight_move" ? trackClause(await opensFor(svc, r.ticker)) : null;
         return say([sampleNote(board) + gapSentence(r), rangeSentence(r, range, now, zone), verdict, track].filter(Boolean).join(" "), {

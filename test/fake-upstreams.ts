@@ -29,7 +29,8 @@ export function fakeUpstreams(state: FakeState) {
       const out: Record<string, unknown> = {};
       for (const mint of (url.searchParams.get("ids") ?? "").split(",")) {
         const l = LISTINGS.find((x) => x.mint === mint);
-        if (!l) continue;
+        // Names off the sample board go unpriced, as a thinly traded mint can live.
+        if (!l || !SAMPLE_BOARD[l.ticker]) continue;
         const { share, moveBps } = SAMPLE_BOARD[l.ticker];
         out[mint] = {
           usdPrice: Math.round(share * (1 + moveBps / 10_000) * 100) / 100,

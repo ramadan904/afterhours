@@ -33,7 +33,7 @@ export async function accountApi(svc: Services, request: Request, url: URL): Pro
     const listing = resolveSymbol(url.searchParams.get("ticker") ?? "");
     if (!listing) return json({ error: "Unknown ticker" }, 404);
     const since = lastRegularClose(new Date(svc.now())).getTime();
-    const points = (await readTape(svc))
+    const points = (await readTape(svc, since))
       .filter((p) => p.at >= since && p.gaps[listing.ticker] !== undefined)
       .map((p) => ({ at: new Date(p.at).toISOString(), gapPercent: Math.round(p.gaps[listing.ticker]) / 100 }));
     return json({ ticker: listing.ticker, name: listingByTicker(listing.ticker)?.spoken, since: new Date(since).toISOString(), points });

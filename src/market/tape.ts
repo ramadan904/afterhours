@@ -34,12 +34,63 @@ export interface TapePoint {
   gaps: Record<string, number>;
 }
 
-export const TAPE_KEY = "tape:v1";
 export const SAMPLE_EVERY_MS = 5 * 60_000;
 export const KEEP_MS = 48 * 3600_000;
 
-export async function readTape(svc: Services): Promise<TapePoint[]> {
-  return (await svc.store.get<TapePoint[]>(TAPE_KEY)) ?? [];
+/**
+ * The tape is stored in 6-hour buckets, each a small table: the tickers once,
+ * then one row per sample (`[at, gap for tickers[0], …]`). 48 hours of 68
+ * names as one JSON value would be ~550KB, past DynamoDB's 400KB item limit
+ * and slow to rewrite every 5 minutes; a bucket is ~30KB, and a sample
+ * rewrites only the current one. Buckets expire on their own.
+ */
+const BUCKET_MS = 6 * 3600_000;
+const BUCKET_TTL_S = (KEEP_MS + 2 * BUCKET_MS) / 1000;
+export const tapeBucketKey = (start: number) => `tape:v2:${start}`;
+const bucketOf = (at: number) => Math.floor(at / BUCKET_MS) * BUCKET_MS;
+
+interface Bucket {
+  tickers: string[];
+  rows: (number | null)[][];
+}
+
+function encode(points: TapePoint[]): Bucket {
+  const tickers = [...new Set(points.flatMap((p) => Object.keys(p.gaps)))];
+  return { tickers, rows: points.map((p) => [p.at, ...tickers.map((t) => p.gaps[t] ?? null)]) };
+}
+
+function decode(bucket: Bucket): TapePoint[] {
+  return bucket.rows.map(([at, ...values]) => {
+    const gaps: Record<string, number> = {};
+    values.forEach((v, i) => {
+      if (typeof v === "number") gaps[bucket.tickers[i]] = v;
+    });
+    return { at: at as number, gaps };
+  });
+}
+
+/** Samples from `since` (default: the whole 48 hours kept) to now, oldest first. */
+export async function readTape(svc: Services, since = svc.now() - KEEP_MS): Promise<TapePoint[]> {
+  const now = svc.now();
+  const starts: number[] = [];
+  for (let s = bucketOf(Math.max(since, now - KEEP_MS)); s <= now; s += BUCKET_MS) starts.push(s);
+  const buckets = await Promise.all(starts.map((s) => svc.store.get<Bucket>(tapeBucketKey(s))));
+  return buckets.flatMap((b) => (b ? decode(b) : [])).filter((p) => p.at >= since && now - p.at <= KEEP_MS);
+}
+
+/** Writes points into their buckets, merging with what each bucket holds. */
+export async function writeTape(store: Services["store"], points: TapePoint[]): Promise<void> {
+  const byBucket = new Map<number, TapePoint[]>();
+  for (const p of points) byBucket.set(bucketOf(p.at), [...(byBucket.get(bucketOf(p.at)) ?? []), p]);
+  await Promise.all(
+    [...byBucket].map(async ([start, added]) => {
+      const held = await store.get<Bucket>(tapeBucketKey(start));
+      const merged = new Map((held ? decode(held) : []).map((p) => [p.at, p]));
+      for (const p of added) merged.set(p.at, p);
+      const sorted = [...merged.values()].sort((a, b) => a.at - b.at);
+      await store.set(tapeBucketKey(start), encode(sorted), BUCKET_TTL_S);
+    }),
+  );
 }
 
 export function readingsFrom(board: Awaited<ReturnType<Services["prices"]["read"]>>, now: number): GapReading[] {
@@ -73,15 +124,14 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   // Once a day, rebuild the open track record from public history (background).
   void refreshOpenHistoryIfStale(svc).catch(() => false);
 
-  const tape = await readTape(svc);
-  const last = tape.at(-1);
-  if (last && now - last.at < SAMPLE_EVERY_MS * 0.8) return { recorded: false, fired, triggered: triggered.length, points: tape.length };
+  const recent = await readTape(svc, now - SAMPLE_EVERY_MS);
+  const last = recent.at(-1);
+  if (last && now - last.at < SAMPLE_EVERY_MS * 0.8) return { recorded: false, fired, triggered: triggered.length, points: recent.length };
 
   const gaps: Record<string, number> = {};
   for (const r of readings) if (r.gapBps !== null && r.kind !== "stale_reference") gaps[r.ticker] = r.gapBps;
-  const next = [...tape.filter((p) => now - p.at <= KEEP_MS), { at: now, gaps }];
-  await svc.store.set(TAPE_KEY, next);
-  return { recorded: true, fired, triggered: triggered.length, points: next.length };
+  await writeTape(svc.store, [{ at: now, gaps }]);
+  return { recorded: true, fired, triggered: triggered.length, points: recent.length + 1 };
 }
 
 export interface Extreme {
@@ -147,5 +197,5 @@ export function sampleTape(now: number): TapePoint[] {
 export async function seedSampleTape(svc: Services): Promise<void> {
   if (!svc.sample) return;
   if ((await readTape(svc)).length > 0) return;
-  await svc.store.set(TAPE_KEY, sampleTape(svc.now()));
+  await writeTape(svc.store, sampleTape(svc.now()));
 }

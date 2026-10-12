@@ -14,8 +14,9 @@ export function esc(value: unknown): string {
 
 export const STYLE = `
 :root{--bg:#0b1020;--panel:#121a33;--panel-2:#18213f;--ink:#e9ecf7;--muted:#9aa4c4;--line:#26305a;--accent:#ffb547;--accent-ink:#1b1300;--up:#4ade80;--down:#f87171;--focus:#8ab4ff;color-scheme:dark}
-@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f4ef;--panel:#fff;--panel-2:#f1eee6;--ink:#141a2e;--muted:#5b6380;--line:#e2ddd0;--accent:#c97a00;--accent-ink:#fff;--up:#15803d;--down:#b91c1c;--focus:#1d4ed8;color-scheme:light}}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f4ef;--panel:#fff;--panel-2:#f1eee6;--ink:#141a2e;--muted:#5b6380;--line:#e2ddd0;--accent:#9a5c00;--accent-ink:#fff;--up:#15803d;--down:#b91c1c;--focus:#1d4ed8;color-scheme:light}}
 *{box-sizing:border-box}html,body{margin:0}[hidden]{display:none!important}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{background:var(--bg);color:var(--ink);font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:var(--accent)}
 .wrap{max-width:720px;margin:0 auto;padding:32px 16px 64px}

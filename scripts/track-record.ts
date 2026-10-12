@@ -18,4 +18,6 @@ for (const ticker of process.argv.slice(2).length ? process.argv.slice(2) : ["TS
   } catch (err) {
     console.log(`${ticker}: ${(err as Error).message}`);
   }
+  // Spaced like the server's daily refresh, for GeckoTerminal's free tier.
+  await new Promise((r) => setTimeout(r, 4_000));
 }

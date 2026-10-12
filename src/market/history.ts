@@ -65,8 +65,10 @@ const HEADERS = { "user-agent": "Mozilla/5.0 (compatible; Afterhours/0.2)", acce
 async function getJson(url: string, fetchImpl: typeof fetch): Promise<unknown> {
   for (let attempt = 0; ; attempt += 1) {
     const res = await fetchImpl(url, { headers: HEADERS, signal: AbortSignal.timeout(10_000) });
-    if (res.status === 429 && attempt === 0) {
-      await new Promise((r) => setTimeout(r, 2_000));
+    // GeckoTerminal's free tier is ~30 requests a minute and shared by IP;
+    // back off twice (3s, then 10s) before giving up on this name for today.
+    if (res.status === 429 && attempt < 2) {
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 3_000 : 10_000));
       continue;
     }
     if (!res.ok) throw new Error(`${new URL(url).host} ${res.status}`);
@@ -74,11 +76,24 @@ async function getJson(url: string, fetchImpl: typeof fetch): Promise<unknown> {
   }
 }
 
+/** The most liquid pool for a mint, for names without a known pool. */
+async function deepestPool(mint: string, fetchImpl: typeof fetch): Promise<string | null> {
+  const body = (await getJson(`https://api.geckoterminal.com/api/v2/networks/solana/tokens/${mint}/pools?page=1`, fetchImpl)) as {
+    data?: { attributes?: { address?: string; reserve_in_usd?: string } }[];
+  };
+  const pools = (body.data ?? [])
+    .map((p) => ({ address: p.attributes?.address, reserve: Number(p.attributes?.reserve_in_usd ?? 0) }))
+    .filter((p): p is { address: string; reserve: number } => typeof p.address === "string")
+    .sort((a, b) => b.reserve - a.reserve);
+  return pools[0]?.address ?? null;
+}
+
 /** ~30 days of hourly token candles from the deepest pool. */
 export async function tokenHourly(ticker: string, fetchImpl: typeof fetch = fetch): Promise<Bar[]> {
   const listing = listingByTicker(ticker);
-  const pool = KNOWN_POOLS[ticker];
-  if (!listing || !pool) return [];
+  if (!listing) return [];
+  const pool = KNOWN_POOLS[ticker] ?? (await deepestPool(listing.mint, fetchImpl));
+  if (!pool) return [];
   const body = (await getJson(
     `https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/ohlcv/hour?aggregate=1&limit=720&currency=usd&token=${listing.mint}`,
     fetchImpl,

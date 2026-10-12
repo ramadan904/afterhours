@@ -14,6 +14,8 @@
  * symbol at runtime.
  */
 
+import extended from "./universe-extended.json" with { type: "json" };
+
 export interface Listing {
   /** Underlying ticker, e.g. `TSLA`. */
   ticker: string;
@@ -34,7 +36,7 @@ export const USDC = {
 
 export const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
-export const LISTINGS: Listing[] = [
+const CORE: Listing[] = [
   { ticker: "TSLA", token: "TSLAx", spoken: "Tesla", mint: "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB", decimals: 8, aliases: ["tesla"] },
   { ticker: "NVDA", token: "NVDAx", spoken: "Nvidia", mint: "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh", decimals: 8, aliases: ["nvidia", "invidia", "n video"] },
   { ticker: "SPY", token: "SPYx", spoken: "the S&P 500 fund", mint: "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W", decimals: 8, aliases: ["s&p", "s and p", "s&p 500", "s and p 500", "the s&p", "sp500", "spider", "the market"] },
@@ -47,6 +49,50 @@ export const LISTINGS: Listing[] = [
   { ticker: "COIN", token: "COINx", spoken: "Coinbase", mint: "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu", decimals: 8, aliases: ["coinbase"] },
   { ticker: "MSTR", token: "MSTRx", spoken: "Strategy", mint: "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ", decimals: 8, aliases: ["strategy", "microstrategy", "micro strategy"] },
   { ticker: "CRCL", token: "CRCLx", spoken: "Circle", mint: "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1", decimals: 8, aliases: ["circle"] },
+];
+
+/**
+ * Names beyond the core 12, verified in CI by scripts/discover-universe.ts
+ * (exact registry symbol, Backed's `Xs` prefix, Token-2022 owner, matching
+ * decimals, unique) and committed after review.
+ */
+
+/** Ways people say names that aren't just the company name. */
+const EXTRA_ALIASES: Record<string, string[]> = {
+  BRKB: ["berkshire", "berkshire hathaway", "brk", "brk b"],
+  JPM: ["jp morgan", "j p morgan", "jpmorgan chase", "chase"],
+  KO: ["coke", "coca cola"],
+  PEP: ["pepsi"],
+  MCD: ["mcdonalds", "mcdonald's"],
+  JNJ: ["j and j", "johnson and johnson"],
+  PG: ["p and g", "procter and gamble"],
+  GLD: ["gold", "the gold etf"],
+  IWM: ["russell", "the russell", "russell 2000", "small caps"],
+  XOM: ["exxon"],
+  LLY: ["lilly", "eli lilly"],
+  NVO: ["novo", "ozempic"],
+  GOOGL: [],
+  TSM: ["taiwan semiconductor"],
+  VTI: ["total market", "vanguard total market"],
+  TQQQ: ["tqqq"],
+  BAC: ["bofa", "b of a"],
+};
+
+function extendedListing(e: { ticker: string; token: string; spoken: string; mint: string; decimals: number }): Listing {
+  const name = e.spoken.toLowerCase();
+  const said = [name, name.replace(/^the /, ""), name.replace(/[.'&]/g, "").replace(/\s+/g, " "), ...(EXTRA_ALIASES[e.ticker] ?? [])];
+  // Stored the way speech is normalised ("McDonald's" is heard as "mcdonald").
+  const aliases = new Set([...said, ...said.map(normalise)].filter(Boolean));
+  return { ...e, aliases: [...aliases] };
+}
+
+const CORE_TICKERS = new Set(CORE.map((l) => l.ticker));
+
+export const LISTINGS: Listing[] = [
+  ...CORE,
+  ...(extended.listings as { ticker: string; token: string; spoken: string; mint: string; decimals: number }[])
+    .filter((e) => !CORE_TICKERS.has(e.ticker) && /^Xs[1-9A-HJ-NP-Za-km-z]{41,42}$/.test(e.mint))
+    .map(extendedListing),
 ];
 
 const FILLER = /\b(stock|stocks|shares?|token|tokens|tokenized|the|x|price|of|ticker)\b/g;

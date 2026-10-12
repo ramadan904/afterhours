@@ -64,8 +64,9 @@ const CSS = `
 
 export function simulatorPage(p: { baseUrl: string; sample: boolean }): Response {
   const body = `<div class="sim">
-<div class="top"><a class="brand" href="/"><span class="moon" aria-hidden="true"></span>Afterhours <span class="pill" style="margin-left:6px">Alexa+ simulator · unofficial</span></a>
-<span class="pill">${p.sample ? "Sample data" : "Live data · Solana mainnet"}</span></div>
+<header class="top"><a class="brand" href="/"><span class="moon" aria-hidden="true"></span>Afterhours <span class="pill" style="margin-left:6px">Alexa+ simulator · unofficial</span></a>
+<span class="pill">${p.sample ? "Sample data" : "Live data · Solana mainnet"}</span></header>
+<main><h1 class="sr-only">Afterhours Alexa+ simulator</h1>
 <div class="grid">
 <section aria-label="Simulated Echo Show">
   <div class="device"><div class="screen">
@@ -76,7 +77,7 @@ export function simulatorPage(p: { baseUrl: string; sample: boolean }): Response
   <form class="input" id="ask" autocomplete="off">
     <button type="button" class="mic" id="mic" aria-label="Speak" title="Tap to speak">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
-    <label for="q" class="sr-only" style="position:absolute;left:-9999px">Say something</label>
+    <label for="q" class="sr-only">Say something</label>
     <input id="q" placeholder="“Alexa, what happened overnight?”">
     <button class="primary" type="submit">Ask</button>
   </form>
@@ -90,7 +91,7 @@ export function simulatorPage(p: { baseUrl: string; sample: boolean }): Response
   <p class="small muted" style="margin:6px 0 0">Streamable HTTP · <span class="mono">${esc(p.baseUrl)}/mcp</span> · Alexa+ budget: 500 ms per call</p>
   <div id="trace"><p class="small muted">Each tool call shows up here with its arguments, latency and result.</p></div></div>
   <p class="disclaimer">Unofficial simulator for development and demos. Alexa and Echo are trademarks of Amazon; this page is not made or endorsed by Amazon. Not investment advice.</p>
-</section></div></div>`;
+</section></div></main></div>`;
 
   const cfg = JSON.stringify({ base: p.baseUrl, resource: `${p.baseUrl}/mcp`, redirect: `${p.baseUrl}/sim/` }).replace(/</g, "\\u003c");
   const script = `

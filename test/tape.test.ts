@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { BASE, SUNDAY, harness, linkWallet, mcp } from "./helpers.js";
 import { evaluate, type Alert } from "../src/market/alerts.js";
-import { overnightRange, recordTape, sampleTape, TAPE_KEY, type TapePoint } from "../src/market/tape.js";
+import { KEEP_MS, SAMPLE_EVERY_MS, overnightRange, readTape, recordTape, sampleTape, writeTape, type TapePoint } from "../src/market/tape.js";
+import { LISTINGS } from "../src/market/universe.js";
 import { rangeSentence } from "../src/mcp/tools.js";
 import { whenSpoken } from "../src/market/speech.js";
 import type { GapReading } from "../src/market/gap.js";
@@ -86,7 +87,7 @@ describe("tape recorder", () => {
 
   it("tells the overnight story in check_stock when the tape has it", async () => {
     const h = harness();
-    await h.svc.store.set(TAPE_KEY, sampleTape(SUNDAY));
+    await writeTape(h.svc.store, sampleTape(SUNDAY));
     const { tokens } = await linkWallet(h.app);
     const session = await mcp(h, tokens.access_token);
     const step = await session.call("check_stock", { stock: "Coinbase" });
@@ -147,5 +148,38 @@ describe("price alerts", () => {
     await recordTape(h.svc);
     const brief = await session.call("overnight_brief", {});
     expect(brief.text).toContain("Tesla's token went below $365 at 11:00 a.m. Eastern; it's at $360 now.");
+  });
+});
+
+describe("tape storage", () => {
+  it("keeps 48 hours of every listing in buckets well under DynamoDB's 400KB item limit", async () => {
+    const h = harness({ sample: false });
+    const now = h.svc.now();
+    const tickers = LISTINGS.map((l) => l.ticker);
+    const points: TapePoint[] = [];
+    for (let at = now - KEEP_MS + SAMPLE_EVERY_MS; at <= now; at += SAMPLE_EVERY_MS) {
+      points.push({ at, gaps: Object.fromEntries(tickers.map((t, i) => [t, Math.round(Math.sin(at / 1e7 + i) * 3000) / 10])) });
+    }
+    const sizes: number[] = [];
+    const store = h.svc.store;
+    const spy = { get: (k: string) => store.get(k), set: async (k: string, v: unknown, ttl?: number) => (sizes.push(JSON.stringify(v).length), store.set(k, v, ttl)) };
+    await writeTape(spy as typeof store, points);
+    expect(Math.max(...sizes)).toBeLessThan(64_000);
+    const back = await readTape(h.svc);
+    expect(back).toHaveLength(points.length);
+    expect(back.at(-1)).toEqual(points.at(-1));
+    expect(back[0]).toEqual(points[0]);
+  });
+
+  it("drops a name from a sample without inventing a value for it", async () => {
+    const h = harness({ sample: false });
+    const now = h.svc.now();
+    await writeTape(h.svc.store, [
+      { at: now - 2 * SAMPLE_EVERY_MS, gaps: { TSLA: 10, NVDA: 5 } },
+      { at: now - SAMPLE_EVERY_MS, gaps: { TSLA: 12 } },
+    ]);
+    const back = await readTape(h.svc);
+    expect(back[1].gaps).toEqual({ TSLA: 12 });
+    expect(overnightRange(back, "NVDA", 0)?.samples).toBe(1);
   });
 });

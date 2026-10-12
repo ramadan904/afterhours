@@ -1,3 +1,4 @@
+import { LISTINGS } from "../src/market/universe.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BASE, FRIDAY_CLOSE, SUNDAY, harness, linkWallet, mcp } from "./helpers.js";
 import { fakeUpstreams, type FakeState } from "./fake-upstreams.js";
@@ -42,8 +43,8 @@ describe("live data path (Jupiter + Solana RPC shapes)", () => {
     expect(brief.text).toContain("Biggest moves since Friday's close: Coinbase up 3.9 percent");
     expect((brief.structured as { dataSource: string }).dataSource).toBe("jupiter");
     await session.call("check_stock", { stock: "Tesla" });
-    // Second call is served from cache: still one upstream price read.
-    expect(state.calls.filter((c) => c === "/price/v3")).toHaveLength(1);
+    // Second call is served from cache: still one board read (50 ids a call).
+    expect(state.calls.filter((c) => c === "/price/v3")).toHaveLength(Math.ceil(LISTINGS.length / 50));
   });
 
   it("reads the linked wallet's Token-2022 balances", async () => {
