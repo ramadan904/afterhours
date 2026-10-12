@@ -38,6 +38,7 @@ import { EASTERN, getZone, resolveZone, setZone, zoneName, type Zone } from "../
 import { fail, say, type Result } from "./result.js";
 import { pinRefusal, registerProTools } from "./tools-pro.js";
 import { checkPin } from "../auth/pin.js";
+import { mintsOf } from "../chain/mint-facts.js";
 import { firstSentence, logActivity } from "../account/activity.js";
 import { count, recordLatency } from "../obs/metrics.js";
 import { getGuardrails, inWindow, nextLocal, recordSpend, spentToday } from "../chain/guardrails.js";
@@ -982,6 +983,10 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const listing = resolveSymbol(stock);
         if (!listing) return unknownStock(stock);
         if (!caller.wallet) return fail("No wallet is linked yet. Link Afterhours in the Alexa app before trading.");
+        // What the chain will allow, read while the rest is checked: a paused token or a
+        // frozen account would make the signed swap fail, so don't prepare one.
+        const mints = mintsOf(svc);
+        const onChain = Promise.all([within(mints.facts(listing, svc.now()), 350), within(mints.frozen(caller.wallet, listing), 350)]);
         const pinCheck = await checkPin(svc.store, caller.sub, pin, svc.now());
         if (!pinCheck.ok) return fail(pinRefusal(pinCheck, await getZone(svc.store, caller.sub)));
         const cap = maxTradeUsd();
@@ -1042,6 +1047,12 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
             intentOut(armed, svc.baseUrl),
           );
         }
+
+        const [facts, frozen] = await onChain;
+        if (facts?.pausable?.paused) {
+          return fail(`The issuer of ${possessiveName(listing.spoken)} token has paused all transfers right now, so a trade can't go through. Nothing was prepared. Ask me again later.`);
+        }
+        if (frozen) return fail(`Your ${listing.spoken} tokens are frozen by their issuer at the moment, so a trade can't go through until it lifts that. Nothing was prepared.`);
 
         const intent = await createIntent(svc.store, base, now);
         await spend(intent.id);

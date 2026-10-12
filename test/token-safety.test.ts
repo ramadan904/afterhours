@@ -6,6 +6,8 @@ import { CachedPrices, JupiterPrices } from "../src/market/prices.js";
 import { RpcHoldings } from "../src/chain/holdings.js";
 import { JupiterSwap } from "../src/chain/trade.js";
 import { recordTape } from "../src/market/tape.js";
+import { buildTrade, TradeNotReady } from "../src/chain/settle.js";
+import { createIntent } from "../src/chain/trade.js";
 import { describeRescale, multiplierAt, parseMint, RpcMints, sampleMintFacts, type MintFacts, type MintSource } from "../src/chain/mint-facts.js";
 import { rescaleKind } from "../src/notify/wallet-watch.js";
 import { listingByTicker, TOKEN_2022_PROGRAM_ID } from "../src/market/universe.js";
@@ -223,5 +225,34 @@ describe("corporate actions in the background", () => {
     state.balances[wallet] = { TSLA: 10.5 };
     await recordTape(h.svc);
     expect(sent.map((n) => n.title)).toEqual(["2 TSLAx arrived in your wallet"]);
+  });
+});
+
+describe("trades the chain would refuse", () => {
+  const paused = (p: boolean, frozen: boolean): MintSource => ({
+    async facts(listing) {
+      return { ...sampleMintFacts(listing, SUNDAY), pausable: { authority: "x", paused: p } };
+    },
+    async frozen() {
+      return frozen;
+    },
+  });
+
+  it("aren't prepared by voice", async () => {
+    for (const [p, f, want] of [
+      [true, false, "The issuer of Tesla's token has paused all transfers right now, so a trade can't go through. Nothing was prepared. Ask me again later."],
+      [false, true, "Your Tesla tokens are frozen by their issuer at the moment, so a trade can't go through until it lifts that. Nothing was prepared."],
+    ] as const) {
+      const h = harness({ mints: paused(p, f) });
+      const { tokens } = await linkWallet(h.app);
+      const session = await mcp(h, tokens.access_token);
+      expect(await session.call("propose_trade", { stock: "Tesla", side: "buy", amount_usd: 25 })).toMatchObject({ isError: true, text: want });
+    }
+  });
+
+  it("aren't built for signing, whichever way the proposal came", async () => {
+    const h = harness({ sample: false, mints: paused(true, false) });
+    const intent = await createIntent(h.svc.store, { sub: "s", wallet: "W", ticker: "TSLA", side: "buy", usd: 25, priceAtProposal: 370 }, SUNDAY);
+    await expect(buildTrade(h.svc, intent)).rejects.toThrow(new TradeNotReady("The issuer of TSLAx has paused all transfers right now, so this trade would fail. Nothing was sent. Try again once transfers resume."));
   });
 });

@@ -16,6 +16,7 @@ import type { Services } from "../services.js";
 import { USDC, listingByTicker } from "../market/universe.js";
 import { confirmOnChain, findLanded, getIntent, saveIntent, swapLegs, type TradeIntent } from "./trade.js";
 import { readTransaction } from "./txmessage.js";
+import { mintsOf } from "./mint-facts.js";
 import { noteSettled } from "../notify/wallet-watch.js";
 import { logActivity } from "../account/activity.js";
 import { count } from "../obs/metrics.js";
@@ -55,6 +56,14 @@ export async function buildTrade(svc: Services, intent: TradeIntent): Promise<Bu
   if (svc.sample) {
     throw new TradeNotReady("This server is running on sample data, so it can't build a real transaction. Deploy with live data to sign trades.");
   }
+  // Every way of signing comes through here, so this is where a trade the chain
+  // would refuse is caught: a paused token, or the wallet's account frozen.
+  const token = listingByTicker(intent.ticker)!;
+  const mints = mintsOf(svc);
+  const [facts, frozen] = await Promise.all([mints.facts(token, svc.now()).catch(() => null), mints.frozen(intent.wallet, token).catch(() => null)]);
+  if (facts?.pausable?.paused) throw new TradeNotReady(`The issuer of ${token.token} has paused all transfers right now, so this trade would fail. Nothing was sent. Try again once transfers resume.`);
+  if (frozen) throw new TradeNotReady(`Your ${token.token} account is frozen by its issuer, so this trade would fail until the issuer lifts that. Nothing was sent.`);
+
   const board = await svc.prices.read();
   const price = board.quotes.get(intent.ticker)?.tokenPrice ?? intent.priceAtProposal;
   const quote = await svc.swap.quote({ ...swapLegs(intent, price), slippageBps: SLIPPAGE_BPS });
