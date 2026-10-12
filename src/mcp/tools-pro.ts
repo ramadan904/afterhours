@@ -44,6 +44,7 @@ import { recordSpend } from "../chain/guardrails.js";
 import { checkPin, hasPin, normalisePin, removePin, setPin, validPin, type PinCheck } from "../auth/pin.js";
 import { describeRescale, mintsOf, multiplierAt, type MintFacts } from "../chain/mint-facts.js";
 import { issuerPowers, rescaleSentence, safetyAnswer } from "../market/safety-talk.js";
+import { changeSince, isLateNight, mirror, readJournal } from "../account/journal.js";
 
 /** Like tools.ts's `within`: an optional extra must never cost the voice turn its budget. */
 async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
@@ -1070,6 +1071,91 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
           return say(safetyAnswer({ listing, facts: f, price: price.get(listing.ticker) ?? null, frozen: fz, now, zone, sample }), structured);
         }
         return say(portfolioSafety(read, zone, sample), structured);
+      }),
+  );
+  server.registerTool(
+    "trade_journal",
+    {
+      title: "Why I made a trade, and how my late-night trades are doing",
+      description:
+        "The user's trading journal: trades they made through Afterhours that confirmed on Solana, each with the local hour it was asked for and the reason they gave ('because ...'), and how each has done since. With a stock, reads back the latest trade in it. Without, compares the buys asked for late at night (11 p.m. to 5 a.m.) with the daytime ones. Use for 'why did I buy Nvidia?', 'what did I say about Tesla?', 'how are my late-night trades doing?', 'show me my trading journal'.",
+      inputSchema: { stock: z.string().optional().describe("One stock, or omit for the whole journal.") },
+      outputSchema: {
+        entries: z.array(
+          z.object({
+            ticker: z.string(),
+            side: z.enum(["buy", "sell"]),
+            usd: z.number(),
+            price: z.number(),
+            askedAt: z.string(),
+            lateNight: z.boolean(),
+            why: z.string().nullable(),
+            changePercent: z.number().nullable(),
+          }),
+        ),
+        lateNight: z.object({ trades: z.number(), avgChangePercent: z.number().nullable() }),
+        daytime: z.object({ trades: z.number(), avgChangePercent: z.number().nullable() }),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ stock }) =>
+      guard(async () => {
+        const only = stock ? resolveSymbol(stock) : null;
+        if (stock && !only) return fail(`I don't have a tokenized stock for "${stock}".`);
+        const [all, zone, { readings }] = await Promise.all([readJournal(svc.store, caller.sub), getZone(svc.store, caller.sub), kit.allReadings()]);
+        // A thin or broken token price isn't a fair "since" for anyone's decision.
+        const prices = new Map(readings.filter((r) => r.kind !== "thin_market" && r.kind !== "suspect_price").map((r) => [r.ticker, r.tokenPrice]));
+        const entries = only ? all.filter((e) => e.ticker === only.ticker) : all;
+        const m = mirror(all, prices);
+        const round = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
+        const structured = {
+          entries: entries.slice(0, 20).map((e) => ({
+            ticker: e.ticker,
+            side: e.side,
+            usd: e.usd,
+            price: e.price,
+            askedAt: new Date(e.askedAt).toISOString(),
+            lateNight: isLateNight(e.hour),
+            why: e.why,
+            changePercent: round(changeSince(e, prices.get(e.ticker))),
+          })),
+          lateNight: { trades: m.lateNight.trades, avgChangePercent: round(m.lateNight.avgChangePercent) },
+          daytime: { trades: m.daytime.trades, avgChangePercent: round(m.daytime.avgChangePercent) },
+        };
+        const moved = (p: number) => `${p >= 0 ? "up" : "down"} ${Math.abs(p).toFixed(1)} percent`;
+        if (only) {
+          const name = only.spoken;
+          if (!entries.length) {
+            return say(`I don't have a confirmed ${name} trade of yours on record yet. When you trade, tell me why, like "buy 25 dollars of ${name} because earnings are next week", and I'll keep it.`, structured);
+          }
+          const e = entries[0];
+          const when = `${spokenDate(zoneParts(new Date(e.askedAt), zone.tz).date)} at ${clockTime(e.askedAt, zone)}`;
+          const c = changeSince(e, prices.get(e.ticker));
+          const parts = [
+            `On ${when}, you ${e.side === "buy" ? "bought" : "sold"} ${usd(e.usd)} of ${name} at ${usd(e.price)}${e.why ? ` and said: "${e.why}."` : ", without saying why."}`,
+          ];
+          if (c !== null) parts.push(e.side === "buy" ? `It's ${moved(c)} since.` : `Since you sold, it's ${moved(c)}.`);
+          if (isLateNight(e.hour)) parts.push("You asked for that one late at night.");
+          if (entries.length > 1) parts.push(`That's the latest of ${entries.length} ${name} trades on record.`);
+          return say(parts.join(" "), structured);
+        }
+        if (!all.length) return say("Your journal is empty: no trades through Afterhours have confirmed yet. When you trade, tell me why, and I'll keep it with the trade.", structured);
+        const parts = [`You've made ${all.length} trade${all.length === 1 ? "" : "s"} through Afterhours.`];
+        const { lateNight: L, daytime: D } = m;
+        if (L.trades && D.trades && L.avgChangePercent !== null && D.avgChangePercent !== null) {
+          parts.push(
+            `Your ${L.trades} buy${L.trades === 1 ? "" : "s"} asked for late at night ${L.trades === 1 ? "is" : "are"} ${moved(L.avgChangePercent)} on average since; your ${D.trades} daytime buy${D.trades === 1 ? " is" : "s are"} ${moved(D.avgChangePercent)}.`,
+          );
+          const gap = L.avgChangePercent - D.avgChangePercent;
+          parts.push(gap < -1 ? "So far, the late-night ones are doing worse." : gap > 1 ? "So far, the late-night ones are doing better, for what it's worth." : "So far there's not much in it.");
+        } else if (L.trades && !D.trades && L.avgChangePercent !== null) {
+          parts.push(`Every one of your buys was asked for late at night; on average they're ${moved(L.avgChangePercent)} since.`);
+        } else if (D.trades && D.avgChangePercent !== null) {
+          parts.push(`None of your buys were asked for late at night; on average they're ${moved(D.avgChangePercent)} since.`);
+        }
+        const note = all.find((e) => e.why);
+        if (note) parts.push(`Your latest note, on ${listingByTicker(note.ticker)?.spoken ?? note.ticker}: "${note.why}."`);
+        return say(parts.join(" "), structured);
       }),
   );
 }

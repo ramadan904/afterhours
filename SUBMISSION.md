@@ -63,7 +63,7 @@ by voice:
 
 ## How it works
 
-- **MCP server** (TypeScript, official MCP SDK): stateless Streamable HTTP on `/mcp`, protocol 2025-11-25, 35 tools
+- **MCP server** (TypeScript, official MCP SDK): stateless Streamable HTTP on `/mcp`, protocol 2025-11-25, 36 tools
   with `outputSchema`s and truthful annotations (reads are `readOnlyHint`, removing an alert is `destructiveHint`, and
   proposing a trade is explicitly *not* destructive because it moves nothing). Each result carries a sentence written
   to be spoken plus structured data for a screen.
@@ -80,6 +80,9 @@ by voice:
   500 ms budget even at 100 listeners (331 ms). CPU profiles found three costs: tool definitions rebuilt per request,
   the overnight tape re-decoded per stock check, and time-zone formatting in hot loops. Fixing them took the same test
   from 95 to 572 requests/s (6×). Full numbers and method: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+- **A journal that asks whether the 2 a.m. decisions are any good:** say why when you trade and it's kept with the
+  hour you asked; "why did I buy Nvidia?" reads it back with how it's done since, and the journal compares late-night
+  buys with daytime ones. Only trades confirmed on chain count.
 - **The chain checks before you sign:** every swap Afterhours builds is dry-run with Solana's `simulateTransaction`,
   and the page or blink says what that exact transaction would do ("you pay 25.00 USDC and get 0.0674 TSLAx, plus
   0.0021 SOL for fees and a new token account"), or why it would fail, before the wallet even opens.
@@ -140,7 +143,7 @@ Afterhours deploys to AWS with one command (`scripts/deploy-aws.sh` → `infra/a
   by default), so the demo sounds the same on any laptop; the browser's own voice is the fallback (`src/sim/voice.ts`).
 - **Amazon SNS:** text alerts for phones without web push, with code verification (`src/notify/sms.ts`), published straight to the
   verified number; a separate SNS topic carries the CloudWatch alarms.
-- **Measured planner:** `scripts/eval-planner.ts --bedrock` scores Claude on Bedrock on 182 utterances (150 + 32
+- **Measured planner:** `scripts/eval-planner.ts --bedrock` scores Claude on Bedrock on 187 utterances (155 + 32
   held out) by tool and arguments, and reports per-turn latency; CI runs it through GitHub OIDC when an AWS role is
   configured. The scripted fallback scores 100% on what it was tuned on and 50% held out, which is the case for
   Bedrock in one number.

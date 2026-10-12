@@ -161,7 +161,23 @@ export function canonical(utterance: string): string {
 }
 
 export function route(utterance: string): { tool: string; args: Record<string, unknown> } | null {
+  // "Buy 25 dollars of Nvidia because earnings are next week": the reason goes
+  // in the trade journal, in the person's own words; the rest is the trade.
+  const because = /^(.*?\b(?:buy|sell)\b.*?)[,\s]+(?:because|cause|'cause)\s+(.{2,})$/i.exec(utterance.trim());
+  if (because) {
+    const trade = routeCore(because[1]);
+    if (trade?.tool === "propose_trade") return { ...trade, args: { ...trade.args, why: because[2].replace(/[.!?]+$/, "").trim() } };
+  }
+  return routeCore(utterance);
+}
+
+function routeCore(utterance: string): { tool: string; args: Record<string, unknown> } | null {
   const t = canonical(utterance);
+
+  if (/\bwhy did i (buy|sell|get)\b|\bwhat did i say about\b|\b(trading|trade) journal\b|\b(late[- ]night|after[- ]midnight|night ?time|2 ?a\.?m\.?) (trades|buys|trading)\b/.test(t)) {
+    const named = resolveSymbol(t.replace(/\b(why|did|i|buy|sell|get|what|say|about|the|my|trading|trade|journal|show|me)\b/g, " "));
+    return { tool: "trade_journal", args: named ? { stock: named.aliases[0] } : {} };
+  }
 
   if (/\b(did|has|is)\b.*\b(trade|order|swap|buy|sale|purchase)\b.*\b(go through|done|complete|confirmed|status|happen)/.test(t) || /\btrade status\b/.test(t)) {
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");

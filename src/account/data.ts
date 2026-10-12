@@ -16,7 +16,7 @@ import { getGuardrails, retireGuardrails } from "../chain/guardrails.js";
 // Guardrails are not on this list: deleting data retires them through the
 // usual 24-hour wait instead (see retireGuardrails), so deletion can't be a
 // way around a limit or sleep mode at 2 a.m.
-const PER_ACCOUNT = ["activity", "alerts", "briefing", "pin", "prefs", "push", "recurring", "targets", "watch", "weekly", "walletsnap", "firedlog", "triggered", "latest-intent", "sms", "smsotp", "smssent"];
+const PER_ACCOUNT = ["activity", "alerts", "briefing", "pin", "prefs", "push", "recurring", "targets", "watch", "weekly", "walletsnap", "firedlog", "triggered", "latest-intent", "sms", "smsotp", "smssent", "journal"];
 const INDEXES = ["alert-accounts", "briefing:index", "recurring:index", "push:index"];
 
 export async function exportData(svc: Services, sub: string): Promise<Record<string, unknown>> {

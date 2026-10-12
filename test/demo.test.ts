@@ -47,7 +47,7 @@ describe("the guided demo", () => {
       "Is the Tesla token trading rich?",
       "How's Super Micro doing?",
       "Is the Tesla token safe?",
-      "Buy 25 dollars of Apple",
+      "Buy 25 dollars of Apple because people love the new phone",
       "Don't let me trade between 4 pm and 7 pm",
       "Buy 25 dollars of Nvidia",
       "Turn off sleep mode",
@@ -63,6 +63,7 @@ describe("the guided demo", () => {
     expect(replies[0].reply).not.toContain("Super Micro");
     expect(replies[2].reply).toContain("Hardly anyone is trading Super Micro's token on Solana right now");
     expect(replies[4].structured).toMatchObject({ status: "awaiting_signature", ticker: "AAPL" });
+    expect(replies[4].reply).toMatch(/I've kept your reason in your journal\.$/);
     expect(replies[6].reply).toContain("sleep mode is on, so I've set this $25 buy of Nvidia aside");
     expect(replies[6].reply).toContain("Lagos time");
     expect(replies[7].reply).toMatch(/24 hours/);

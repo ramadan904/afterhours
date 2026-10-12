@@ -1016,6 +1016,38 @@
     "from": "11:30 pm",
     "until": "7 am"
    }
+  },
+  {
+   "say": "Buy 25 dollars of Nvidia because AI earnings are next week",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "NVDA",
+    "side": "buy",
+    "amount_usd": 25,
+    "why": "AI earnings are next week"
+   }
+  },
+  {
+   "say": "Why did I buy Nvidia?",
+   "tool": "trade_journal",
+   "args": {
+    "stock": "NVDA"
+   }
+  },
+  {
+   "say": "What did I say about Tesla?",
+   "tool": "trade_journal",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "How are my late night trades doing?",
+   "tool": "trade_journal"
+  },
+  {
+   "say": "Show me my trading journal",
+   "tool": "trade_journal"
   }
  ]
 }

@@ -19,6 +19,7 @@ import { readTransaction } from "./txmessage.js";
 import { mintsOf } from "./mint-facts.js";
 import { preflight, preflightSentence, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type Preflight } from "./preflight.js";
 import { noteSettled } from "../notify/wallet-watch.js";
+import { markConfirmed } from "../account/journal.js";
 import { logActivity } from "../account/activity.js";
 import { count } from "../obs/metrics.js";
 import { usd } from "../market/speech.js";
@@ -26,7 +27,10 @@ import { usd } from "../market/speech.js";
 /** Records a trade's outcome in its owner's activity log. */
 async function logOutcome(svc: Services, intent: TradeIntent): Promise<void> {
   if (intent.status !== "confirmed" && intent.status !== "failed") return;
-  if (intent.status === "confirmed") count("TradesConfirmed");
+  if (intent.status === "confirmed") {
+    count("TradesConfirmed");
+    await markConfirmed(svc.store, intent.sub, intent.id, svc.now()).catch(() => undefined);
+  }
   const what = `${intent.side === "buy" ? "Buy" : "Sale"} of ${usd(intent.usd)} of ${listingByTicker(intent.ticker)?.token ?? intent.ticker}`;
   await logActivity(svc.store, intent.sub, {
     at: svc.now(),

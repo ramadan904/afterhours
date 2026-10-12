@@ -39,6 +39,7 @@ import { fail, say, type Result } from "./result.js";
 import { pinRefusal, registerProTools } from "./tools-pro.js";
 import { checkPin } from "../auth/pin.js";
 import { mintsOf } from "../chain/mint-facts.js";
+import { cleanReason, recordProposal } from "../account/journal.js";
 import { firstSentence, logActivity } from "../account/activity.js";
 import { count, recordLatency } from "../obs/metrics.js";
 import { getGuardrails, inWindow, nextLocal, recordSpend, spentToday } from "../chain/guardrails.js";
@@ -974,11 +975,12 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           .optional()
           .describe("Only for 'if it drops below / rises above X': the token price in dollars that triggers the trade."),
         pin: z.string().optional().describe("The user's spoken trade PIN, if they've set one. If the result says a PIN is needed, ask for it and call again. Never repeat it back."),
+        why: z.string().max(300).optional().describe("The user's reason, if they gave one ('because earnings are next week'). Kept in their trade journal; don't invent one."),
       },
       outputSchema: intentShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async ({ stock, side, amount_usd, trigger_price, pin }) =>
+    async ({ stock, side, amount_usd, trigger_price, pin, why }) =>
       guard(async () => {
         const listing = resolveSymbol(stock);
         if (!listing) return unknownStock(stock);
@@ -1026,6 +1028,11 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const spend = async (id: string) => {
           if (side === "buy") await recordSpend(svc.store, caller.sub, zone, now, id, amount_usd);
         };
+        // The trading journal: every proposal is noted with the hour it was asked
+        // (and the reason, if one was given); only confirmed ones count later.
+        const reason = cleanReason(why);
+        const noted = reason ? " I've kept your reason in your journal." : "";
+        const journal = (i: TradeIntent) => recordProposal(svc.store, i, reason, zone).catch(() => undefined);
 
         const base = { sub: caller.sub, wallet: caller.wallet, ticker: listing.ticker, side, usd: amount_usd, priceAtProposal: r.tokenPrice };
         // A "conditional" trade priced at the market is prepared at once, so it sleeps on it too.
@@ -1034,9 +1041,10 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           const until = nextLocal(now, zone, rules.sleep.to);
           const held = await armIntent(svc.store, base, { hold: { until, reason: "sleep" } }, now);
           await spend(held.id);
+          await journal(held);
           const devices = await channelCount(svc, caller.sub);
           return say(
-            `${sampleNote(board)}It's ${clockTime(now, zone)} ${zoneName(zone)} and sleep mode is on, so I've set this ${usd(amount_usd)} ${side} of ${listing.spoken} aside instead of preparing it now. It'll be ready to sign at ${clockTime(until, zone)}${devices ? ", and I'll send it to your phone" : ""}, if you still want it. To drop it, say cancel my order.`,
+            `${sampleNote(board)}It's ${clockTime(now, zone)} ${zoneName(zone)} and sleep mode is on, so I've set this ${usd(amount_usd)} ${side} of ${listing.spoken} aside instead of preparing it now. It'll be ready to sign at ${clockTime(until, zone)}${devices ? ", and I'll send it to your phone" : ""}, if you still want it. To drop it, say cancel my order.${noted}`,
             intentOut(held, svc.baseUrl),
           );
         }
@@ -1044,12 +1052,13 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           const above = trigger_price > r.tokenPrice;
           const armed = await armIntent(svc.store, base, { price: trigger_price, above }, now);
           await spend(armed.id);
+          await journal(armed);
           const devices = await channelCount(svc, caller.sub);
           const tell = devices
             ? "I'll prepare it then and send a notification to your phone to sign it."
             : "I'll prepare it then for you to sign. Turn on notifications in the Afterhours app to hear about it right away.";
           return say(
-            `${sampleNote(board)}OK. When ${possessiveName(listing.spoken)} token ${above ? "rises above" : "drops below"} ${usd(trigger_price)}, I'll get a ${usd(amount_usd)} ${side} ready. It's at ${usd(r.tokenPrice)} now. ${tell} Nothing happens without your signature.`,
+            `${sampleNote(board)}OK. When ${possessiveName(listing.spoken)} token ${above ? "rises above" : "drops below"} ${usd(trigger_price)}, I'll get a ${usd(amount_usd)} ${side} ready. It's at ${usd(r.tokenPrice)} now. ${tell} Nothing happens without your signature.${noted}`,
             intentOut(armed, svc.baseUrl),
           );
         }
@@ -1062,6 +1071,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
 
         const intent = await createIntent(svc.store, base, now);
         await spend(intent.id);
+        await journal(intent);
         const parts = [
           `${sampleNote(board)}A ${side} of ${usd(amount_usd)} of ${listing.spoken} at about ${usd(r.tokenPrice)} is ready for you to sign.`,
           `Open ${spokenUrl(svc.baseUrl, "/go")} and enter code ${spokenCode(intent.code)}. It expires in 15 minutes.`,
@@ -1095,7 +1105,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
             );
           }
         }
-        return say(parts.join(" "), intentOut(intent, svc.baseUrl));
+        return say(parts.join(" ") + noted, intentOut(intent, svc.baseUrl));
       }),
   );
 

@@ -58,7 +58,10 @@ export function demoTour(o: { thin: string | null; hour: number }): TourStep[] {
       ? [{ say: `How's ${o.thin} doing?`, note: "The honesty layer: a token almost nobody trades on Solana doesn't get read out as a price." }]
       : []),
     { say: "Is the Tesla token safe?", note: "Read from the token's Token-2022 mint on Solana: what its issuer can actually do." },
-    { say: "Buy 25 dollars of Apple", note: "Alexa can't trade. It prepares a proposal with a code and QR; only the wallet can sign it." },
+    {
+      say: "Buy 25 dollars of Apple because people love the new phone",
+      note: "Alexa can't trade. It prepares a proposal with a code and QR; only the wallet can sign it. The reason goes in the trading journal, with the hour it was asked.",
+    },
     {
       say: `Don't let me trade between ${hourPhrase(o.hour)} and ${hourPhrase(o.hour + 3)}`,
       note: "A guardrail, set while calm. This one covers right now, so you can see it work.",

@@ -34,7 +34,7 @@ describe("tool definitions built once per process", () => {
         )
         .then((r) => r.json());
     const [first, second] = [await list(), await list()];
-    expect(first.result.tools).toHaveLength(35);
+    expect(first.result.tools).toHaveLength(36);
     expect(second).toEqual(first);
     expect(first.result.tools.every((t: { inputSchema?: unknown; outputSchema?: unknown }) => t.inputSchema && t.outputSchema)).toBe(true);
   });
