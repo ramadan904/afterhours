@@ -44,3 +44,15 @@ describe("CloudWatch metrics", () => {
     expect(sent.length - before).toBeLessThanOrEqual(1);
   });
 });
+
+describe("busy minutes", () => {
+  it("split more than 150 distinct latencies over several datums instead of dropping them", async () => {
+    await startMetrics({}, async () => undefined);
+    for (let i = 0; i < 400; i += 1) recordLatency("check_stock", i / 10);
+    const data = (await flush()) as { Dimensions?: unknown[]; Values?: number[]; Counts?: number[] }[];
+    const perTool = data.filter((d) => d.Dimensions);
+    expect(perTool).toHaveLength(3);
+    expect(perTool.reduce((t, d) => t + d.Counts!.reduce((a, b) => a + b, 0), 0)).toBe(400);
+    stopMetrics();
+  });
+});

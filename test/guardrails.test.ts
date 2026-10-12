@@ -139,3 +139,13 @@ describe("review fixes", () => {
     expect((await session.call("rebalance", { confirm: true })).text).toBe("Sleep mode is on until 7 a.m., so I won't prepare a rebalance now. Ask me again in the morning.");
   });
 });
+
+describe("wake-up across daylight saving", () => {
+  const ny = { tz: "America/New_York", label: "Eastern" };
+  it("lands on 7:00 local when the clocks go back, and when they go forward", async () => {
+    const { nextLocal } = await import("../src/chain/guardrails.js");
+    expect(new Date(nextLocal(Date.parse("2026-11-01T03:30:00Z"), ny, 7 * 60)).toISOString()).toBe("2026-11-01T12:00:00.000Z"); // 7:00 EST
+    expect(new Date(nextLocal(Date.parse("2026-03-08T04:30:00Z"), ny, 7 * 60)).toISOString()).toBe("2026-03-08T11:00:00.000Z"); // 7:00 EDT
+    expect(new Date(nextLocal(Date.parse("2026-10-13T06:14:00Z"), ny, 7 * 60)).toISOString()).toBe("2026-10-13T11:00:00.000Z");
+  });
+});

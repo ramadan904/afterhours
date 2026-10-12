@@ -46,12 +46,21 @@ export function count(name: "ToolErrors" | "TapeSamples" | "AlertsFired" | "Push
   counters.set(name, (counters.get(name) ?? 0) + n);
 }
 
-/** Values and counts, compressed: CloudWatch takes up to 150 distinct values per datum. */
-function valuesAndCounts(values: number[]): { Values: number[]; Counts: number[] } {
+/**
+ * Values and counts, compressed. CloudWatch takes up to 150 distinct values
+ * per datum, so a busy minute is split over several datums rather than
+ * dropping values (which would skew the percentiles).
+ */
+function valuesAndCounts(values: number[]): { Values: number[]; Counts: number[] }[] {
   const tally = new Map<number, number>();
   for (const v of values) tally.set(v, (tally.get(v) ?? 0) + 1);
-  const entries = [...tally].slice(0, 150);
-  return { Values: entries.map(([v]) => v), Counts: entries.map(([, c]) => c) };
+  const entries = [...tally];
+  const out: { Values: number[]; Counts: number[] }[] = [];
+  for (let i = 0; i < entries.length; i += 150) {
+    const part = entries.slice(i, i + 150);
+    out.push({ Values: part.map(([v]) => v), Counts: part.map(([, c]) => c) });
+  }
+  return out;
 }
 
 /** Builds and sends one minute's metrics; returns what was sent (for tests). */
@@ -62,9 +71,9 @@ export async function flush(now = new Date()): Promise<unknown[]> {
   for (const [tool, list] of latencies) {
     if (!list.length) continue;
     all.push(...list);
-    data.push({ MetricName: "ToolLatency", Dimensions: [{ Name: "Tool", Value: tool }], Unit: "Milliseconds", Timestamp: now, ...valuesAndCounts(list) });
+    for (const part of valuesAndCounts(list)) data.push({ MetricName: "ToolLatency", Dimensions: [{ Name: "Tool", Value: tool }], Unit: "Milliseconds", Timestamp: now, ...part });
   }
-  if (all.length) data.push({ MetricName: "ToolLatency", Unit: "Milliseconds", Timestamp: now, ...valuesAndCounts(all) });
+  if (all.length) for (const part of valuesAndCounts(all)) data.push({ MetricName: "ToolLatency", Unit: "Milliseconds", Timestamp: now, ...part });
   for (const [name, n] of counters) data.push({ MetricName: name, Unit: "Count", Timestamp: now, Value: n });
   latencies.clear();
   counters.clear();

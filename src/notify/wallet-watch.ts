@@ -25,6 +25,14 @@ const INDEX = "walletwatch:index";
 const snapKey = (sub: string) => `walletsnap:${sub}`;
 const settledKey = (wallet: string) => `settled:${wallet}`;
 const EXPLAIN_MS = 30 * 60_000;
+
+interface Settled {
+  ticker: string;
+  side: string;
+  at: number;
+  /** Tokens the trade moved, estimated from its size and price. */
+  qty?: number;
+}
 const MAX_WATCHED = 500;
 
 export async function watchWallet(svc: Services, sub: string, wallet: string): Promise<void> {
@@ -36,8 +44,10 @@ export async function watchWallet(svc: Services, sub: string, wallet: string): P
 /** Remembers a trade that landed, so its balance change isn't reported as a surprise. */
 export async function noteSettled(svc: Services, intent: TradeIntent): Promise<void> {
   if (intent.status !== "confirmed") return;
-  const list = (await svc.store.get<{ ticker: string; side: string; at: number }[]>(settledKey(intent.wallet))) ?? [];
-  await svc.store.set(settledKey(intent.wallet), [...list, { ticker: intent.ticker, side: intent.side, at: svc.now() }].slice(-20), 3600);
+  const list = (await svc.store.get<Settled[]>(settledKey(intent.wallet))) ?? [];
+  // Roughly how many tokens it moved: the fill differs from the proposal price a little.
+  const qty = intent.priceAtProposal > 0 ? intent.usd / intent.priceAtProposal : 0;
+  await svc.store.set(settledKey(intent.wallet), [...list, { ticker: intent.ticker, side: intent.side, at: svc.now(), qty }].slice(-20), 3600);
 }
 
 const amount = (n: number) => (Math.abs(n) >= 100 ? Math.abs(n).toFixed(0) : Number(Math.abs(n).toPrecision(4)).toString());
@@ -79,11 +89,17 @@ export async function checkWallets(svc: Services, prices: Map<string, number>): 
     await svc.store.set(snapKey(sub), current);
     if (!previous) continue;
 
-    const settled = ((await svc.store.get<{ ticker: string; side: string; at: number }[]>(settledKey(wallet))) ?? []).filter((s) => now - s.at < EXPLAIN_MS);
+    const settled = ((await svc.store.get<Settled[]>(settledKey(wallet))) ?? []).filter((s) => now - s.at < EXPLAIN_MS);
+    // A confirmed trade explains about its own size (15% slack for the fill),
+    // never the rest: a small sale can't hide the position being drained.
     const moves = [...new Set([...Object.keys(current), ...Object.keys(previous)])]
-      .map((ticker) => ({ ticker, delta: (current[ticker] ?? 0) - (previous[ticker] ?? 0), price: prices.get(ticker) }))
-      .filter((m) => Math.abs(m.delta) > 1e-9)
-      .filter((m) => !settled.some((s) => s.ticker === m.ticker && (s.side === "buy") === m.delta > 0));
+      .map((ticker) => {
+        const delta = (current[ticker] ?? 0) - (previous[ticker] ?? 0);
+        const explained = settled.filter((s) => s.ticker === ticker && (s.side === "buy") === delta > 0).reduce((t, s) => t + (s.qty ?? Infinity) * 1.15, 0);
+        const residual = Math.max(0, Math.abs(delta) - explained);
+        return { ticker, delta: Math.sign(delta) * residual, price: prices.get(ticker) };
+      })
+      .filter((m) => Math.abs(m.delta) > 1e-6);
     if (!moves.length) continue;
     const notice = walletNotice(moves, svc.baseUrl);
     await logActivity(svc.store, sub, { at: now, kind: "wallet.moved", text: `${notice.title}, not through a trade Afterhours prepared.`, ok: !moves.some((m) => m.delta < 0) }).catch(() => undefined);

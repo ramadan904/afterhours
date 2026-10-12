@@ -85,8 +85,16 @@ function nextMonthDay(today: string, month: number, day: number): string | null 
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
   const year = Number(today.slice(0, 4));
   const pad = (n: number) => String(n).padStart(2, "0");
-  const thisYear = `${year}-${pad(month)}-${pad(day)}`;
-  return thisYear >= today ? thisYear : `${year + 1}-${pad(month)}-${pad(day)}`;
+  const real = (y: number) => {
+    const d = new Date(Date.UTC(y, month - 1, day));
+    return d.getUTCMonth() === month - 1 && d.getUTCDate() === day ? `${y}-${pad(month)}-${pad(day)}` : null;
+  };
+  // "February 30" isn't a day; February 29 is the next one that exists.
+  for (let y = year; y <= year + 4; y += 1) {
+    const date = real(y);
+    if (date && date >= today) return date;
+  }
+  return null;
 }
 
 /** "Thursday, November 26" */

@@ -63,3 +63,10 @@ describe("routing", () => {
     ["which is doing better, Coinbase or Strategy?", { tool: "compare_stocks", args: { stocks: ["COIN", "MSTR"] } }],
   ])("%s", (said, expected) => expect(route(said)).toEqual(expected));
 });
+
+describe("days that don't exist", () => {
+  it("aren't resolved", () => {
+    expect(resolveDay("February 30", "2026-10-11")).toBeNull();
+    expect(resolveDay("February 29", "2026-10-11")).toBe("2028-02-29");
+  });
+});

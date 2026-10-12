@@ -68,15 +68,15 @@ export async function startVerification(svc: Services, sub: string, phoneSaid: s
   const recent = sent.filter((t) => svc.now() - t < 3600_000);
   if (recent.length >= MAX_PER_HOUR) return { ok: false, error: "That's three codes this hour. Try again later." };
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-  await svc.store.set(otpKey(sub), { phone, hash: hash(svc, code).toString("base64"), tries: 0 }, CODE_TTL_S);
+  await svc.store.set(otpKey(sub), { phone, hash: hash(svc, code).toString("base64"), tries: 0, expiresAt: svc.now() + CODE_TTL_S * 1000 }, CODE_TTL_S);
   await svc.store.set(sentKey(sub), [...recent, svc.now()], 3600);
   await sender.send(phone, `Afterhours code: ${code}. It expires in 10 minutes. If you didn't ask for it, ignore this.`);
   return { ok: true, phone };
 }
 
 export async function verifyCode(svc: Services, sub: string, code: string): Promise<{ ok: true; phone: string } | { ok: false; error: string }> {
-  const pending = await svc.store.get<{ phone: string; hash: string; tries: number }>(otpKey(sub));
-  if (!pending) return { ok: false, error: "That code has expired. Ask for a new one." };
+  const pending = await svc.store.get<{ phone: string; hash: string; tries: number; expiresAt?: number }>(otpKey(sub));
+  if (!pending || (pending.expiresAt && pending.expiresAt <= svc.now())) return { ok: false, error: "That code has expired. Ask for a new one." };
   const given = hash(svc, code.replace(/\D/g, ""));
   const want = Buffer.from(pending.hash, "base64");
   if (given.length === want.length && timingSafeEqual(given, want)) {
@@ -88,7 +88,9 @@ export async function verifyCode(svc: Services, sub: string, code: string): Prom
     await svc.store.del(otpKey(sub));
     return { ok: false, error: "Too many wrong codes. Ask for a new one." };
   }
-  await svc.store.set(otpKey(sub), { ...pending, tries: pending.tries + 1 }, CODE_TTL_S);
+  // A wrong try keeps the code's original expiry; it doesn't buy more time.
+  const left = Math.max(1, Math.ceil(((pending.expiresAt ?? svc.now() + CODE_TTL_S * 1000) - svc.now()) / 1000));
+  await svc.store.set(otpKey(sub), { ...pending, tries: pending.tries + 1 }, left);
   return { ok: false, error: "That code isn't right." };
 }
 

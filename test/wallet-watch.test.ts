@@ -67,9 +67,19 @@ describe("wallet watch", () => {
   it("stays quiet about a trade Afterhours prepared and saw confirmed", async () => {
     const { h, state, sent, wallet } = await setup();
     await recordTape(h.svc);
-    await noteSettled(h.svc, { wallet, ticker: "TSLA", side: "buy", status: "confirmed" } as TradeIntent);
+    await noteSettled(h.svc, { wallet, ticker: "TSLA", side: "buy", status: "confirmed", usd: 55, priceAtProposal: 370 } as TradeIntent);
     state.balances[wallet] = { TSLA: 4.4, SPY: 1 };
     await recordTape(h.svc);
     expect(sent).toHaveLength(0);
+  });
+
+  it("doesn't let a small confirmed sale hide the rest of the position leaving", async () => {
+    const { h, state, sent, wallet } = await setup();
+    await recordTape(h.svc);
+    await noteSettled(h.svc, { wallet, ticker: "TSLA", side: "sell", status: "confirmed", usd: 10, priceAtProposal: 370 } as TradeIntent);
+    state.balances[wallet] = { SPY: 1 }; // all 4.25 TSLA gone, not just $10 of it
+    await recordTape(h.svc);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].title).toMatch(/^4\.2\d* TSLAx left your wallet$/);
   });
 });

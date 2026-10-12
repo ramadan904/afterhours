@@ -126,7 +126,16 @@ export function inWindow(minutes: number, w: { from: number; to: number }): bool
 export function nextLocal(now: number, zone: Zone, to: number): number {
   const { minutes } = zoneParts(new Date(now), zone.tz);
   const ahead = (to - minutes + 1440) % 1440 || 1440;
-  return Math.floor(now / 60_000) * 60_000 + ahead * 60_000;
+  let at = Math.floor(now / 60_000) * 60_000 + ahead * 60_000;
+  // Adding wall-clock minutes is wrong across a daylight-saving change; read
+  // the clock at the candidate and correct (twice at most; a time inside a
+  // skipped hour lands just after it).
+  for (let i = 0; i < 2; i += 1) {
+    const off = ((to - zoneParts(new Date(at), zone.tz).minutes + 720 + 1440) % 1440) - 720;
+    if (off === 0) break;
+    at += off * 60_000;
+  }
+  return at;
 }
 
 /** USD of buys proposed today (local date) that are still live or went through. */
