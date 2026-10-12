@@ -27,7 +27,7 @@ describe("MCP over Streamable HTTP", () => {
     const tools = await session.tools();
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
     expect(Object.keys(byName).sort()).toEqual(
-      ["cancel_trade", "check_stock", "edit_watchlist", "explain", "how_did_the_open_go", "list_alerts", "market_depth", "market_status", "my_portfolio", "my_recurring_buys", "my_returns", "my_watchlist", "open_track_record", "overnight_brief", "propose_trade", "rebalance", "remove_alert", "recurring_buy", "schedule_briefing", "set_alert", "set_sleep_mode", "set_spending_limit", "set_target_allocation", "set_timezone", "set_trade_pin", "stop_recurring_buy", "trade_status"].sort(),
+      ["cancel_trade", "check_stock", "edit_watchlist", "explain", "how_did_the_open_go", "list_alerts", "market_depth", "market_status", "my_portfolio", "my_recurring_buys", "my_returns", "my_watchlist", "open_track_record", "overnight_brief", "propose_trade", "rebalance", "remove_alert", "recurring_buy", "schedule_briefing", "set_alert", "set_sleep_mode", "set_spending_limit", "set_target_allocation", "set_timezone", "set_trade_pin", "stop_recurring_buy", "trade_status", "weekly_recap"].sort(),
     );
     for (const name of ["explain", "market_status", "overnight_brief", "check_stock", "my_portfolio", "list_alerts", "trade_status", "my_watchlist"]) {
       expect(byName[name].annotations?.readOnlyHint, name).toBe(true);

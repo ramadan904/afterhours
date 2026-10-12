@@ -15,6 +15,8 @@ export interface FakeState {
   balances: Record<string, Record<string, number>>;
   /** Signature → fee payer, outcome, and the blockhash it was built against. */
   transactions: Record<string, { payer: string; err?: unknown; blockhash?: string; blockTime?: number; deltas?: Record<string, number> }>;
+  /** Token prices, as multiples of the sample board's token price. */
+  tokenFactor?: Record<string, number>;
   /** Share prices that differ from the sample board (e.g. after the open). */
   shareOverride?: Record<string, number>;
   /** Blockhashes of the swap transactions built, newest last. */
@@ -40,7 +42,7 @@ export function fakeUpstreams(state: FakeState) {
         if (!l || !SAMPLE_BOARD[l.ticker]) continue;
         const { share, moveBps } = SAMPLE_BOARD[l.ticker];
         out[mint] = {
-          usdPrice: Math.round(share * (1 + moveBps / 10_000) * 100) / 100,
+          usdPrice: Math.round(share * (1 + moveBps / 10_000) * (state.tokenFactor?.[l.ticker] ?? 1) * 100) / 100,
           blockId: 1,
           decimals: 8,
           priceChange24h: 0.4,

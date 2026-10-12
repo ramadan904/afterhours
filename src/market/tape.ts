@@ -28,6 +28,7 @@ import { sendDueBriefings } from "../notify/briefing.js";
 import { runDuePlans } from "../chain/recurring.js";
 import { checkWallets } from "../notify/wallet-watch.js";
 import { trackOpen } from "../notify/open-verdict.js";
+import { logFired, sendWeeklyRecaps, snapshotDay } from "../notify/weekly.js";
 import { triggerArmed } from "../chain/trade.js";
 import { getZone } from "./zones.js";
 import { refreshOpenHistoryIfStale } from "./history.js";
@@ -120,6 +121,7 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   const send = async (sub: string, make: (zone: Awaited<ReturnType<typeof getZone>>) => Parameters<typeof notify>[2]) =>
     notify(svc, sub, make(await getZone(svc.store, sub))).catch(() => 0);
   await Promise.all(firedAlerts.map(({ sub, alert }) => send(sub, (zone) => alertNotice(alert, svc.baseUrl, zone))));
+  for (const { sub, alert } of firedAlerts) await logFired(svc, sub, alert.ticker).catch(() => undefined);
 
   // Conditional trades whose price was crossed become signable now.
   const prices = new Map(readings.map((r) => [r.ticker, r.tokenPrice]));
@@ -138,6 +140,9 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   await checkWallets(svc, prices).catch(() => 0);
   // Just before 9:30 keep the overnight call; a few minutes after, score it.
   await trackOpen(svc, board, readings).catch(() => 0);
+  // A daily price snapshot for week-over-week, and Sunday-evening recaps.
+  await snapshotDay(svc, readings).catch(() => undefined);
+  await sendWeeklyRecaps(svc, prices).catch(() => 0);
 
   // Once a day, rebuild the open track record from public history (background).
   void refreshOpenHistoryIfStale(svc).catch(() => false);

@@ -27,6 +27,7 @@ import { readBasis } from "../chain/basis.js";
 import { depthLadder, sizeWithin } from "../chain/depth.js";
 import { getTargets, planRebalance, setTargets } from "../market/rebalance.js";
 import { openKey, type OpenResult } from "../notify/open-verdict.js";
+import { recapSentence, setWeekly, weeklyOn, weekRecap } from "../notify/weekly.js";
 import { sampleOpens } from "../market/history.js";
 import { getMarketSession, toEasternParts } from "../market/session.js";
 import { getWatchlist } from "../market/watchlist.js";
@@ -668,6 +669,48 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
           dataSource: svc.sample ? "sample" : "live",
           date,
           results: results.map((r) => ({ ticker: r.ticker, calledPercent: r.calledBps / 100, openPercent: r.openBps / 100, held: held(r) })),
+        });
+      }),
+  );
+
+  server.registerTool(
+    "weekly_recap",
+    {
+      title: "How was my week?",
+      description:
+        "The user's week in tokenized stocks: how their holdings moved over seven days, which led and lagged, how many recurring buys they signed, and how many alerts went off. Can also turn on or off a recap pushed Sunday at 6 p.m. their time. Use for 'how was my week?', 'weekly recap', 'send me a recap every Sunday', 'stop the weekly recap'.",
+      inputSchema: { push: z.boolean().optional().describe("True to get it pushed every Sunday evening, false to stop. Omit to just hear it.") },
+      outputSchema: {
+        dataSource: z.enum(["live", "sample"]),
+        changeUsd: z.number().nullable(),
+        changePercent: z.number().nullable(),
+        best: z.object({ ticker: z.string(), percent: z.number() }).nullable(),
+        worst: z.object({ ticker: z.string(), percent: z.number() }).nullable(),
+        recurringRuns: z.number(),
+        recurringSigned: z.number(),
+        alertsFired: z.number(),
+        pushOn: z.boolean(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ push }) =>
+      guard(async () => {
+        if (push !== undefined) await setWeekly(svc, caller.sub, push);
+        const wallet = caller.wallet ?? (svc.sample ? "" : null);
+        const [holdings, { readings }] = await Promise.all([wallet === null ? Promise.resolve(null) : within(svc.holdings.read(wallet), 450), kit.allReadings()]);
+        const recap = await weekRecap(svc, caller.sub, holdings, new Map(readings.map((r) => [r.ticker, r.tokenPrice])));
+        const on = await weeklyOn(svc, caller.sub);
+        const pushNote = push === true ? " I'll send this to your phone every Sunday at 6 p.m." : push === false ? " I've stopped the Sunday recap." : "";
+        return say(`${svc.sample ? "Using sample data. " : ""}${recapSentence(recap)}${pushNote}`, {
+          dataSource: svc.sample ? "sample" : "live",
+          changeUsd: recap.changeUsd,
+          changePercent: recap.changePercent,
+          best: recap.best,
+          worst: recap.worst,
+          recurringRuns: recap.recurring.runs,
+          recurringSigned: recap.recurring.signed,
+          alertsFired: recap.alertsFired,
+          pushOn: on,
         });
       }),
   );
