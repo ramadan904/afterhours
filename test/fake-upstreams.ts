@@ -24,6 +24,12 @@ export interface FakeState {
   /** ISO time of the share leg's last print. */
   shareUpdatedAt: string;
   calls: string[];
+  /**
+   * What simulating a swap would show, for the pre-sign check: balances (SOL,
+   * then the paying and receiving token) before and after, or an error. Unset:
+   * the RPC doesn't answer those calls, as a minimal node might not.
+   */
+  simulation?: { before: [number, number | null, number | null]; after?: [number, number | null, number | null]; err?: unknown; logs?: string[] };
 }
 
 export function fakeUpstreams(state: FakeState) {
@@ -115,6 +121,20 @@ export function fakeUpstreams(state: FakeState) {
               transaction: { message: { accountKeys: [{ pubkey: tx.payer, signer: true }], recentBlockhash: tx.blockhash ?? bs58.encode(new Uint8Array(32).fill(7)) } },
             }
           : null,
+      });
+    }
+
+    if (body?.jsonrpc === "2.0" && state.simulation && (body.method === "getMultipleAccounts" || body.method === "simulateTransaction")) {
+      const sim = state.simulation;
+      const accounts = (values: [number, number | null, number | null]) =>
+        values.map((v, i) =>
+          v === null ? null : i === 0 ? { lamports: Math.round(v * 1e9) } : { lamports: 2_039_280, data: { parsed: { info: { tokenAmount: { amount: "0", decimals: 6, uiAmountString: String(v) } } } } },
+        );
+      if (body.method === "getMultipleAccounts") return json({ jsonrpc: "2.0", id: body.id, result: { value: accounts(sim.before) } });
+      return json({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: { value: { err: sim.err ?? null, logs: sim.logs ?? [], accounts: sim.err ? null : accounts(sim.after ?? sim.before), unitsConsumed: 182_340 } },
       });
     }
 

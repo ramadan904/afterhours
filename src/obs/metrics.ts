@@ -41,7 +41,7 @@ export function recordLatency(tool: string, ms: number): void {
   latencies.set(tool, list);
 }
 
-export function count(name: "ToolErrors" | "TapeSamples" | "AlertsFired" | "PushSent" | "TradesConfirmed", n = 1): void {
+export function count(name: "ToolErrors" | "TapeSamples" | "AlertsFired" | "PushSent" | "TradesConfirmed" | "PreflightOk" | "PreflightFailed", n = 1): void {
   if (!sink) return;
   counters.set(name, (counters.get(name) ?? 0) + n);
 }

@@ -157,7 +157,7 @@ export async function actionsApi(svc: Services, request: Request, url: URL): Pro
     return json({
       type: "transaction",
       transaction: built.transaction,
-      message: `You pay ${built.pay} and receive about ${built.receive} (price impact ${built.impact}, max slippage ${built.slippage}).`,
+      message: `You pay ${built.pay} and receive about ${built.receive} (price impact ${built.impact}, max slippage ${built.slippage}).${built.check ? ` ${built.check}` : ""}`,
       links: { next: { type: "post", href: `/api/actions/trade/${intent.code}/next` } },
     });
   } catch (err) {

@@ -17,6 +17,7 @@ import { USDC, listingByTicker } from "../market/universe.js";
 import { confirmOnChain, findLanded, getIntent, saveIntent, swapLegs, type TradeIntent } from "./trade.js";
 import { readTransaction } from "./txmessage.js";
 import { mintsOf } from "./mint-facts.js";
+import { preflight, preflightSentence, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type Preflight } from "./preflight.js";
 import { noteSettled } from "../notify/wallet-watch.js";
 import { logActivity } from "../account/activity.js";
 import { count } from "../obs/metrics.js";
@@ -49,6 +50,10 @@ export interface BuiltTrade {
   receive: string;
   impact: string;
   slippage: string;
+  /** What simulating this exact transaction on Solana says it would do; absent when the chain couldn't be asked. */
+  preflight?: Preflight;
+  /** The same, as one sentence for the page or a blink. */
+  check?: string;
 }
 
 export async function buildTrade(svc: Services, intent: TradeIntent): Promise<BuiltTrade> {
@@ -79,6 +84,14 @@ export async function buildTrade(svc: Services, intent: TradeIntent): Promise<Bu
   }
 
   const listing = listingByTicker(intent.ticker)!;
+  // The chain's second opinion on this exact transaction, before anyone signs.
+  const usdc = { symbol: "USDC", mint: USDC.mint, decimals: USDC.decimals, tokenProgram: TOKEN_PROGRAM };
+  const xstock = { symbol: listing.token, mint: listing.mint, decimals: listing.decimals, tokenProgram: TOKEN_2022_PROGRAM };
+  const legs = intent.side === "buy" ? { pay: usdc, receive: xstock } : { pay: xstock, receive: usdc };
+  const payAmount = Number(quote.inAmount) / 10 ** legs.pay.decimals;
+  const check = await preflight(svc.rpcUrl, transaction, intent.wallet, { ...legs, payAmount });
+  if (check.checked) count(check.ok ? "PreflightOk" : "PreflightFailed");
+
   const inDecimals = intent.side === "buy" ? USDC.decimals : listing.decimals;
   const outDecimals = intent.side === "buy" ? listing.decimals : USDC.decimals;
   const fmt = (raw: string, d: number, unit: string) =>
@@ -89,6 +102,7 @@ export async function buildTrade(svc: Services, intent: TradeIntent): Promise<Bu
     receive: fmt(quote.outAmount, outDecimals, intent.side === "buy" ? listing.token : "USDC"),
     impact: `${(Math.abs(Number(quote.priceImpactPct ?? 0)) * 100).toFixed(2)}%`,
     slippage: `${(SLIPPAGE_BPS / 100).toFixed(1)}%`,
+    ...(check.checked ? { preflight: check, check: preflightSentence(check, legs) ?? undefined } : {}),
   };
 }
 

@@ -80,6 +80,9 @@ by voice:
   500 ms budget even at 100 listeners (331 ms). CPU profiles found three costs: tool definitions rebuilt per request,
   the overnight tape re-decoded per stock check, and time-zone formatting in hot loops. Fixing them took the same test
   from 95 to 572 requests/s (6×). Full numbers and method: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+- **The chain checks before you sign:** every swap Afterhours builds is dry-run with Solana's `simulateTransaction`,
+  and the page or blink says what that exact transaction would do ("you pay 25.00 USDC and get 0.0674 TSLAx, plus
+  0.0021 SOL for fees and a new token account"), or why it would fail, before the wallet even opens.
 - **Never reads out a broken price:** CI's live run once caught "Super Micro up 17722 percent": $2.89 of liquidity
   behind the token. An audit of all 60 xStocks found every token above $100,000 of liquidity within 1% of its share,
   and 37 of 60 under $10,000, where gaps ran to 727%. Those are now *thin markets*, and anything more than 1.5× from

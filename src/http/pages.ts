@@ -177,6 +177,7 @@ export function confirmPage(p: { code: string }): Response {
 <div class="row" style="justify-content:space-between"><h2 style="margin:0" id="title"></h2><span class="pill" id="status"></span></div>
 <dl style="margin-top:12px" id="facts"></dl>
 <div id="quote" class="small muted" style="margin-top:12px"></div>
+<div id="check" class="small" style="margin-top:6px" role="status"></div>
 <div class="row" style="margin-top:16px" id="actions"></div>
 <p id="msg" class="small" role="status" aria-live="polite"></p>
 <div id="phone" hidden style="margin-top:16px;border-top:1px solid var(--line);padding-top:16px">
@@ -211,6 +212,9 @@ async function sign(w,b){b.disabled=true;$("msg").textContent="Connecting…";
  try{const {account,address:addr}=await connectWallet(w);if(addr!==current.wallet)throw new Error("This is "+short(addr)+". The trade was proposed for "+short(current.wallet)+": switch accounts in your wallet.");
   $("msg").textContent="Getting a fresh quote…";const built=await api("/api/trade/build",{code:current.code});
   $("quote").textContent="Fresh quote: you pay "+built.pay+" and receive about "+built.receive+" (price impact "+built.impact+", max slippage "+built.slippage+").";
+  const pf=built.preflight;$("check").textContent=built.check||"";$("check").style.color=pf&&!pf.ok?"#b42318":"";
+  // The chain said no in a dry run: stop before the wallet opens. A second, deliberate click can still go ahead.
+  if(pf&&!pf.ok&&!b.dataset.force){b.dataset.force="1";b.textContent="Sign anyway";b.disabled=false;$("msg").textContent="Not sent. Fix that first, or sign anyway if you know better.";return}
   $("msg").textContent="Approve it in your wallet…";const sig=await signAndSend(w,account,fromB64(built.transaction));
   show(await api("/api/trade/submitted",{code:current.code,signature:sig}));$("msg").textContent="Sent. Waiting for Solana to confirm…"}
  catch(e){$("msg").textContent=(e&&e.message)||"Not signed. Nothing was sent.";b.disabled=false}}

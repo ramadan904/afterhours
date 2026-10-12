@@ -210,6 +210,13 @@ export class SamplePrices implements PriceSource {
  */
 export class CachedPrices implements PriceSource {
   private board: Board | null = null;
+  /**
+   * When the board was fetched, on this cache's own clock. Not `board.at`:
+   * that's the source's clock, and comparing two clocks freezes the cache
+   * whenever the source's runs ahead (a board stamped "in the future" never
+   * goes stale).
+   */
+  private fetchedAt = 0;
   private inflight: Promise<Board> | null = null;
 
   constructor(
@@ -223,14 +230,19 @@ export class CachedPrices implements PriceSource {
     if (!this.inflight) {
       this.inflight = this.source
         .read()
-        .then((b) => (this.board = b))
+        .then((b) => {
+          this.fetchedAt = this.now();
+          return (this.board = b);
+        })
         .finally(() => (this.inflight = null));
     }
     return this.inflight;
   }
 
   async read(): Promise<Board> {
-    const age = this.board ? this.now() - this.board.at : Infinity;
+    const elapsed = this.now() - this.fetchedAt;
+    // A clock that went backwards can't vouch for anything: treat it as cold.
+    const age = this.board && elapsed >= 0 ? elapsed : Infinity;
     if (age < this.freshMs) return this.board!;
     if (age < this.maxAgeMs) {
       this.refresh().catch(() => {});
