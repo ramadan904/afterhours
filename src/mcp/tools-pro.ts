@@ -28,6 +28,8 @@ import { depthLadder, sizeWithin } from "../chain/depth.js";
 import { getTargets, planRebalance, setTargets } from "../market/rebalance.js";
 import { openKey, type OpenResult } from "../notify/open-verdict.js";
 import { recapSentence, setWeekly, weeklyOn, weekRecap } from "../notify/weekly.js";
+import { readActivity } from "../account/activity.js";
+import { whenSpoken } from "../market/speech.js";
 import { sampleOpens } from "../market/history.js";
 import { getMarketSession, toEasternParts } from "../market/session.js";
 import { getWatchlist } from "../market/watchlist.js";
@@ -712,6 +714,30 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
           alertsFired: recap.alertsFired,
           pushOn: on,
         });
+      }),
+  );
+
+  server.registerTool(
+    "my_activity",
+    {
+      title: "What's changed on my account",
+      description:
+        "Reads back the account's activity log: changes made through Afterhours (limits, PINs, trades proposed, signed or confirmed, recurring buys, alerts) and background events (trades confirmed, wallet movements), newest first, with when. Use for 'what did I do on my account?', 'what's changed recently?', 'did anyone try to trade on my account?'.",
+      inputSchema: { count: z.number().int().min(1).max(10).optional().describe("How many entries to read out. Default 5.") },
+      outputSchema: { entries: z.array(z.object({ at: z.string(), kind: z.string(), text: z.string(), ok: z.boolean() })), total: z.number() },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ count }) =>
+      guard(async () => {
+        const all = await readActivity(svc.store, caller.sub);
+        const recent = all.slice(-(count ?? 5)).reverse();
+        const data = { entries: recent.map((e) => ({ at: new Date(e.at).toISOString(), kind: e.kind, text: e.text, ok: e.ok })), total: all.length };
+        if (!recent.length) return say("Nothing has changed on your account through Afterhours yet.", data);
+        const now = svc.now();
+        const zone = await getZone(svc.store, caller.sub);
+        const failed = all.filter((e) => !e.ok && now - e.at < 7 * 86_400_000 && /PIN/.test(e.text)).length;
+        const lines = recent.map((e) => `${capitalise(whenSpoken(e.at, now, zone))}: ${e.text.replace(/\.$/, "")}.`);
+        return say(`${failed ? `Heads up: ${failed === 1 ? "one wrong PIN was" : `${failed} wrong PINs were`} tried this week. ` : ""}Most recent first. ${lines.join(" ")}`, data);
       }),
   );
 }

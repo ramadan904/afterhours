@@ -15,6 +15,7 @@ import { lastRegularClose } from "../market/session.js";
 import { listingByTicker, resolveSymbol } from "../market/universe.js";
 import { RateLimit } from "./limit.js";
 import { watchWallet } from "../notify/wallet-watch.js";
+import { logActivity } from "../account/activity.js";
 import { readBasis } from "../chain/basis.js";
 import { tradesCsv } from "./export.js";
 
@@ -68,6 +69,7 @@ export async function accountApi(svc: Services, request: Request, url: URL): Pro
     const devices = await addSubscription(svc, claims.sub, body.subscription);
     // With a device to tell, the wallet's balances are watched for surprises.
     if (claims.wallet) await watchWallet(svc, claims.sub, claims.wallet);
+    await logActivity(svc.store, claims.sub, { at: svc.now(), kind: "device.added", text: `Turned on notifications on a device (${devices} in all).`, ok: true });
     return json({ ok: true, devices, max: MAX_SUBSCRIPTIONS });
   }
 

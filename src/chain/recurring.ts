@@ -22,6 +22,7 @@ import { getGuardrails, recordSpend, spentToday } from "./guardrails.js";
 import { getZone, zoneParts, type Zone } from "../market/zones.js";
 import { listingByTicker } from "../market/universe.js";
 import { capitalise, clockTime, usd } from "../market/speech.js";
+import { logActivity } from "../account/activity.js";
 
 export type Cadence = "daily" | "weekly" | "monthly";
 export const MAX_PLANS = 5;
@@ -164,6 +165,7 @@ export async function runDuePlans(svc: Services, prices: Map<string, number>): P
       const rules = await getGuardrails(svc.store, sub, now);
       if (rules.dailyLimitUsd !== null && (await spentToday(svc.store, sub, zone, now)) + plan.usd > rules.dailyLimitUsd + 0.001) {
         plan.runs = [...plan.runs, { date: local.date, skipped: "limit" as const }].slice(-12);
+        await logActivity(svc.store, sub, { at: now, kind: "recurring.skipped", text: `Skipped the ${usd(plan.usd)} ${name} buy: it would have gone over your ${usd(rules.dailyLimitUsd)} daily limit.`, ok: false }).catch(() => undefined);
         await notify(svc, sub, {
           title: `Skipped today's ${name} buy`,
           body: `It would have gone over your ${usd(rules.dailyLimitUsd)} daily limit. The plan carries on next time.`,
@@ -181,6 +183,7 @@ export async function runDuePlans(svc: Services, prices: Map<string, number>): P
       await recordSpend(svc.store, sub, zone, now, intent.id, plan.usd);
       plan.runs = [...plan.runs, { date: local.date, intentId: intent.id }].slice(-12);
       made.push(intent);
+      await logActivity(svc.store, sub, { at: now, kind: "recurring.prepared", text: `Prepared your ${plan.cadence} ${usd(plan.usd)} ${name} buy to sign, code ${intent.code}.`, ok: true }).catch(() => undefined);
       await notify(svc, sub, runNotice(intent, plan, svc.baseUrl, zone)).catch(() => 0);
     }
     if (changed) await savePlans(svc, sub, plans);

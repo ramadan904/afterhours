@@ -29,7 +29,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 
 | | |
 | --- | --- |
-| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 28 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
+| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 29 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
 | **Account linking** | OAuth 2.1 authorization code + **PKCE (S256)**. RFC 9728 protected-resource metadata, RFC 8414 server metadata, `resource` bound to the MCP URI, rotating refresh tokens, and a bare `401` for unauthenticated MCP calls, all as Alexa+'s MCP onboarding asks. You link a **Solana wallet by signing a message** (free, can't move funds), or link a watch-only address. |
 | **68 stocks and funds** | Tesla to Coca-Cola, the S&P 500 to gold. Every mint is verified before it ships (exact registry symbol, Backed's `Xs` prefix, Token-2022 owner, matching decimals, exactly one candidate) by `scripts/discover-universe.ts` in CI. Each name answers to the ways it's said ("coke", "J P Morgan", "the Russell"). |
 | **Live data** | Token and share prices from Jupiter (one keyless call returns both legs), balances from Solana mainnet RPC. Prices are served from a stale-while-revalidate cache, so tool calls stay well inside Alexa+'s **500 ms** budget. |
@@ -51,6 +51,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | **Companion app** | `/app` is an installable PWA and another MCP client of the same server. It shows your portfolio, the night's moves with a chart of each, alerts you can manage, your latest trade, and the switch for notifications on that device. |
 | **The night, heard** | Every overnight chart in the companion app has "Listen to the night": the gap played as pitch over three seconds (low is down, high is up), with a click each time it crosses the last close. For screen-reader users, and anyone glancing at a phone in the dark. |
 | **Rebalance to a target mix** | "Keep me 60 percent S&P and 40 percent Nasdaq." Later, "how far am I from my target?" explains the drift and the trades that would fix it, paid for by the sales (no new money, drifts under 2 percent left alone). "Rebalance now" prepares them, sales first, through the same PIN, daily limit and wallet signature as any trade. |
+| **Activity log** | Every change made through Afterhours (a limit raised, a PIN set or a wrong PIN tried, a trade proposed, signed or confirmed, a recurring buy prepared, a wallet alert sent) is logged with when. "What's changed on my account?" reads it back, and warns if wrong PINs were tried this week. It records what Afterhours said, never the arguments, so a PIN can't end up in it. |
 | **Spoken trade PIN** | Like Alexa's voice purchasing code: with a PIN set, no trade or recurring buy is prepared until it's said ("four seven one nine" works). Salted scrypt hash, five wrong tries lock voice trading for an hour, the PIN is never said back, and changing or removing it needs the current one. |
 | **Wallet watch** | Afterhours can't move funds, so it can't protect them, but it can notice. With notifications on, the wallet's xStock balances are compared every 5 minutes; anything that left or arrived without a trade Afterhours prepared and saw confirmed is pushed at once: "4.25 TSLAx left your wallet. About $1,575. If it wasn't you, move what's left to a wallet only you control." |
 | **`.sol` names** | Link a watch-only account as `toly.sol` instead of a 44-character address; names resolve through the Solana Name Service and are checked to be a real key. |
@@ -161,7 +162,7 @@ overnight tape: set `CRON_SECRET`, then add repository secrets `AFTERHOURS_URL` 
 ```
 
 - `src/market/`: universe and voice aliases, NYSE calendar and sessions, gap logic, speech phrasing, price sources and cache
-- `src/mcp/tools.ts`: the 28 tools · `src/mcp/apps.ts`: MCP Apps cards
+- `src/mcp/tools.ts`: the 29 tools · `src/mcp/apps.ts`: MCP Apps cards
 - `src/market/tape.ts`: the overnight tape · `src/market/alerts.ts`: alerts that fire with timestamps
 - `src/auth/`: OAuth 2.1 server, signed tokens, wallet signature verification
 - `src/chain/`: Solana balances, trade proposals, Jupiter swap client

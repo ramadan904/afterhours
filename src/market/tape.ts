@@ -24,6 +24,7 @@ import { evaluateAll } from "./alerts.js";
 import { notify } from "../notify/push.js";
 import { alertNotice, settledTradeNotice, triggeredTradeNotice } from "../notify/notices.js";
 import { settlePending } from "../chain/settle.js";
+import { logActivity } from "../account/activity.js";
 import { sendDueBriefings } from "../notify/briefing.js";
 import { runDuePlans } from "../chain/recurring.js";
 import { checkWallets } from "../notify/wallet-watch.js";
@@ -127,6 +128,9 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   const prices = new Map(readings.map((r) => [r.ticker, r.tokenPrice]));
   const triggered = await triggerArmed(svc.store, prices, now);
   await Promise.all(triggered.map((t) => send(t.sub, (zone) => triggeredTradeNotice(t, svc.baseUrl, zone))));
+  for (const t of triggered) {
+    await logActivity(svc.store, t.sub, { at: now, kind: "trade.ready", text: `${triggeredTradeNotice(t, svc.baseUrl).title}: ready to sign with code ${t.code}.`, ok: true }).catch(() => undefined);
+  }
 
   // Trades signed from a blink or a phone's QR scan land without telling us; find them.
   const settled = await settlePending(svc).catch(() => []);

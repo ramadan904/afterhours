@@ -17,6 +17,20 @@ import { USDC, listingByTicker } from "../market/universe.js";
 import { confirmOnChain, findLanded, getIntent, saveIntent, swapLegs, type TradeIntent } from "./trade.js";
 import { readTransaction } from "./txmessage.js";
 import { noteSettled } from "../notify/wallet-watch.js";
+import { logActivity } from "../account/activity.js";
+import { usd } from "../market/speech.js";
+
+/** Records a trade's outcome in its owner's activity log. */
+async function logOutcome(svc: Services, intent: TradeIntent): Promise<void> {
+  if (intent.status !== "confirmed" && intent.status !== "failed") return;
+  const what = `${intent.side === "buy" ? "Buy" : "Sale"} of ${usd(intent.usd)} of ${listingByTicker(intent.ticker)?.token ?? intent.ticker}`;
+  await logActivity(svc.store, intent.sub, {
+    at: svc.now(),
+    kind: `trade.${intent.status}`,
+    text: intent.status === "confirmed" ? `${what} confirmed on Solana.` : `${what} didn't go through${intent.error ? `: ${intent.error}` : ""}.`,
+    ok: intent.status === "confirmed",
+  }).catch(() => undefined);
+}
 
 const SLIPPAGE_BPS = Number(process.env.TRADE_SLIPPAGE_BPS ?? 50);
 /** A signature that hasn't landed by now never will (blockhashes expire in ~90s). */
@@ -89,6 +103,7 @@ export async function refreshIntent(svc: Services, intent: TradeIntent): Promise
         intent.error = check.error;
         await saveIntent(svc.store, intent, now);
         await noteSettled(svc, intent);
+        await logOutcome(svc, intent);
         return intent;
       }
       // The reported signature may be bogus or dropped, while the wallet's real
@@ -121,6 +136,7 @@ async function settle(svc: Services, intent: TradeIntent, landed: { signature: s
   intent.error = landed.failed ? "the swap failed on chain" : undefined;
   await saveIntent(svc.store, intent, svc.now());
   await noteSettled(svc, intent);
+  await logOutcome(svc, intent);
   return intent;
 }
 

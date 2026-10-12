@@ -166,6 +166,7 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "trade_status", args: code ? { code } : {} };
   }
+  if (/\b(what did i do|what's changed|what has changed|activity|account history|did anyone (try|use)|who (traded|used))\b/.test(t)) return { tool: "my_activity", args: {} };
   if (/\b(how was my week|weekly recap|my week|week in review|recap every sunday)\b/.test(t)) {
     const off = /\b(stop|cancel|turn off|no more)\b/.test(t);
     const on = /\b(send|every sunday|turn on|push)\b/.test(t);

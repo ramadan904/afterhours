@@ -19,6 +19,7 @@ import { listSubscriptions, notify } from "./push.js";
 import type { TradeIntent } from "../chain/trade.js";
 import { listingByTicker } from "../market/universe.js";
 import { usd } from "../market/speech.js";
+import { logActivity } from "../account/activity.js";
 
 const INDEX = "walletwatch:index";
 const snapKey = (sub: string) => `walletsnap:${sub}`;
@@ -84,7 +85,9 @@ export async function checkWallets(svc: Services, prices: Map<string, number>): 
       .filter((m) => Math.abs(m.delta) > 1e-9)
       .filter((m) => !settled.some((s) => s.ticker === m.ticker && (s.side === "buy") === m.delta > 0));
     if (!moves.length) continue;
-    if ((await notify(svc, sub, walletNotice(moves, svc.baseUrl)).catch(() => 0)) > 0) sent += 1;
+    const notice = walletNotice(moves, svc.baseUrl);
+    await logActivity(svc.store, sub, { at: now, kind: "wallet.moved", text: `${notice.title}, not through a trade Afterhours prepared.`, ok: !moves.some((m) => m.delta < 0) }).catch(() => undefined);
+    if ((await notify(svc, sub, notice).catch(() => 0)) > 0) sent += 1;
   }
   return sent;
 }

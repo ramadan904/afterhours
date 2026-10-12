@@ -37,6 +37,7 @@ import { EASTERN, getZone, resolveZone, setZone, zoneName, type Zone } from "../
 import { fail, say, type Result } from "./result.js";
 import { pinRefusal, registerProTools } from "./tools-pro.js";
 import { checkPin } from "../auth/pin.js";
+import { firstSentence, logActivity } from "../account/activity.js";
 import { getGuardrails, inWindow, nextLocal, recordSpend, spentToday } from "../chain/guardrails.js";
 import { zoneParts } from "../market/zones.js";
 import { impactAt } from "../chain/depth.js";
@@ -218,6 +219,9 @@ const intentShape = {
   triggeredAt: z.string().nullable(),
 };
 
+/** Tools that act even when called with no arguments (the rest only read without them). */
+const CHANGES_WITHOUT_ARGS = new Set(["cancel_trade", "stop_recurring_buy", "delete_my_data"]);
+
 /** Diversified by construction: no concentration warning for buying these. */
 const BROAD_FUNDS = new Set(["SPY", "QQQ", "VTI", "IWM"]);
 
@@ -256,12 +260,22 @@ function tradeSentence(intent: TradeIntent, now: number, zone: Zone = EASTERN): 
 export function registerTools(server: McpServer, svc: Services, caller: Caller): void {
   // Time every handler for /health. Wrapping registerTool once keeps the
   // tool definitions below free of timing code.
+  // Every tool is timed for /health, and every call that changes something
+  // (or tried to) goes in the account's activity log. Wrapping registerTool
+  // once keeps the tool definitions below free of both.
   const register = server.registerTool.bind(server);
-  server.registerTool = ((name: string, config: unknown, cb: (...a: unknown[]) => Promise<unknown>) =>
+  server.registerTool = ((name: string, config: { annotations?: { readOnlyHint?: boolean } }, cb: (...a: unknown[]) => Promise<unknown>) =>
     register(name, config as never, (async (...a: unknown[]) => {
       const started = performance.now();
       try {
-        return await cb(...a);
+        const result = (await cb(...a)) as Result;
+        const args = (a[0] ?? {}) as Record<string, unknown>;
+        const changes = !config.annotations?.readOnlyHint && (Object.keys(args).length > 0 || CHANGES_WITHOUT_ARGS.has(name));
+        if (changes) {
+          const text = result.content.map((c) => c.text).join(" ");
+          await logActivity(svc.store, caller.sub, { at: svc.now(), kind: name, text: firstSentence(text), ok: !result.isError }).catch(() => undefined);
+        }
+        return result;
       } finally {
         recordToolTime(name, performance.now() - started);
       }
