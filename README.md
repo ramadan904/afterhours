@@ -29,7 +29,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 
 | | |
 | --- | --- |
-| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 26 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
+| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 27 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
 | **Account linking** | OAuth 2.1 authorization code + **PKCE (S256)**. RFC 9728 protected-resource metadata, RFC 8414 server metadata, `resource` bound to the MCP URI, rotating refresh tokens, and a bare `401` for unauthenticated MCP calls, all as Alexa+'s MCP onboarding asks. You link a **Solana wallet by signing a message** (free, can't move funds), or link a watch-only address. |
 | **68 stocks and funds** | Tesla to Coca-Cola, the S&P 500 to gold. Every mint is verified before it ships (exact registry symbol, Backed's `Xs` prefix, Token-2022 owner, matching decimals, exactly one candidate) by `scripts/discover-universe.ts` in CI. Each name answers to the ways it's said ("coke", "J P Morgan", "the Russell"). |
 | **Live data** | Token and share prices from Jupiter (one keyless call returns both legs), balances from Solana mainnet RPC. Prices are served from a stale-while-revalidate cache, so tool calls stay well inside Alexa+'s **500 ms** budget. |
@@ -40,6 +40,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | **Recurring buys, no custody** | "Buy 25 dollars of the S&P every Monday." Dollar-cost averaging without handing over money or keys: each run prepares a proposal at the current price and pushes it to your phone; one tap opens it in Phantom or Solflare (or as a Solana Action) and your wallet signs it, or it lapses. Runs respect your daily limit, and "how's my S&P plan going?" tells you how many you've signed. |
 | **Cost basis from the chain** | "How much have I made on Nvidia?" Wallets don't keep cost basis, so Afterhours rebuilds it from the wallet's own Solana history: every transaction where an xStock balance moved against USDC is a buy or sale at a real price, accounted at average cost, with realized gains. Tokens that arrived without a USDC payment are counted as held but left out of the average, and the answer says so. Indexed incrementally in the background. |
 | **Liquidity, out loud** | "How deep is the Tesla market right now?" Real Jupiter quotes at $100, $1,000 and $10,000 say what each size would cost over the token's price, and how much fits under 1 percent. A large proposal on a thin weekend pool gets a warning before it's signed ("At this size you'd pay about 1.3 percent over the token's price"). |
+| **The open, scored** | All night the token makes a call; at 9:30 the exchange answers. A few minutes in, everyone holding or watching a name that moved gets "At the open: Tesla +1.9%, Coinbase −0.4%. Tesla's token had called +2.1%; Coinbase's +3.9%. Some overnight moves held, some didn't." "How did the open go?" answers for the rest of the day. |
 | **Is it Tesla, or the market?** | Each name's beta to the S&P 500 is estimated daily from a month of real share closes. Overnight, the S&P 500 token stands in for the market, so `check_stock` can say "Most of that is Tesla's own; the S&P 500 token is up 0.3 percent", or "That's mostly the market". |
 | **Watchlist** | "Add Netflix and Palantir to my watchlist." With 68 names on the board, the briefing leads with the names you follow that actually moved ("On your watchlist: Palantir up 0.8 percent and Netflix up 0.5 percent"), then the rest of the market without repeating them. Editable by voice or in the companion app. |
 | **Scheduled briefing** | "Brief me every weekday at 7." Sent as a push at that time in your own time zone (your portfolio's move, watched names that moved, the biggest movers), once a day, never stale: a briefing more than 15 minutes late waits for tomorrow. Set it by voice or in the companion app. |
@@ -157,7 +158,7 @@ overnight tape: set `CRON_SECRET`, then add repository secrets `AFTERHOURS_URL` 
 ```
 
 - `src/market/`: universe and voice aliases, NYSE calendar and sessions, gap logic, speech phrasing, price sources and cache
-- `src/mcp/tools.ts`: the 26 tools · `src/mcp/apps.ts`: MCP Apps cards
+- `src/mcp/tools.ts`: the 27 tools · `src/mcp/apps.ts`: MCP Apps cards
 - `src/market/tape.ts`: the overnight tape · `src/market/alerts.ts`: alerts that fire with timestamps
 - `src/auth/`: OAuth 2.1 server, signed tokens, wallet signature verification
 - `src/chain/`: Solana balances, trade proposals, Jupiter swap client

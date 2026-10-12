@@ -135,6 +135,10 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "trade_status", args: code ? { code } : {} };
   }
+  if (/\bhow did the open go\b|\b(move|token) (hold|right)\b|\bwas the token right\b/.test(t)) {
+    const named = resolveSymbol(t.replace(/\b(did|the|weekend|overnight|move|hold|token|right|this morning|was|how|open|go)\b/g, " "));
+    return { tool: "how_did_the_open_go", args: named ? { stock: named.aliases[0] } : {} };
+  }
   if (/\b(how deep|liquid|liquidity|depth|without moving)\b/.test(t)) {
     const named = resolveSymbol(t.replace(/\b(how deep|is|the|market|liquid|liquidity|depth|right now|without moving it)\b/g, " "));
     return { tool: "market_depth", args: { stock: named ? named.aliases[0] : stockIn(t), ...(/\bsell/.test(t) ? { side: "sell" } : {}) } };

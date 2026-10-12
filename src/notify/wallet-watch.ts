@@ -88,3 +88,9 @@ export async function checkWallets(svc: Services, prices: Map<string, number>): 
   }
   return sent;
 }
+
+/** The wallet an account watches, if it has one on file. */
+export async function walletOf(svc: Services, sub: string): Promise<string | null> {
+  const index = (await svc.store.get<{ sub: string; wallet: string }[]>(INDEX)) ?? [];
+  return index.find((e) => e.sub === sub)?.wallet ?? null;
+}

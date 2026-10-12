@@ -97,6 +97,7 @@ export function webPushSender(svc: Services): PushSender {
 }
 
 const key = (sub: string) => `push:${sub}`;
+const PUSH_INDEX = "push:index";
 
 export async function listSubscriptions(svc: Services, sub: string): Promise<PushSubscription[]> {
   return (await svc.store.get<PushSubscription[]>(key(sub))) ?? [];
@@ -106,7 +107,14 @@ export async function addSubscription(svc: Services, sub: string, subscription: 
   const current = (await listSubscriptions(svc, sub)).filter((s) => s.endpoint !== subscription.endpoint);
   const next = [...current, subscription].slice(-MAX_SUBSCRIPTIONS);
   await svc.store.set(key(sub), next);
+  const index = (await svc.store.get<string[]>(PUSH_INDEX)) ?? [];
+  if (!index.includes(sub)) await svc.store.set(PUSH_INDEX, [...index, sub].slice(-5000));
   return next.length;
+}
+
+/** Every account that has turned notifications on at some point (devices may since be gone). */
+export async function pushAccounts(svc: Services): Promise<string[]> {
+  return (await svc.store.get<string[]>(PUSH_INDEX)) ?? [];
 }
 
 export async function removeSubscription(svc: Services, sub: string, endpoint: string): Promise<void> {

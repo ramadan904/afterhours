@@ -15,6 +15,8 @@ export interface FakeState {
   balances: Record<string, Record<string, number>>;
   /** Signature → fee payer, outcome, and the blockhash it was built against. */
   transactions: Record<string, { payer: string; err?: unknown; blockhash?: string; blockTime?: number; deltas?: Record<string, number> }>;
+  /** Share prices that differ from the sample board (e.g. after the open). */
+  shareOverride?: Record<string, number>;
   /** Blockhashes of the swap transactions built, newest last. */
   built?: string[];
   /** ISO time of the share leg's last print. */
@@ -42,7 +44,7 @@ export function fakeUpstreams(state: FakeState) {
           blockId: 1,
           decimals: 8,
           priceChange24h: 0.4,
-          stockData: { price: share, updatedAt: state.shareUpdatedAt },
+          stockData: { price: state.shareOverride?.[l.ticker] ?? share, updatedAt: state.shareUpdatedAt },
         };
       }
       return json(out);

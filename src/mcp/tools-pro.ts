@@ -26,6 +26,10 @@ import { listSubscriptions } from "../notify/push.js";
 import { readBasis } from "../chain/basis.js";
 import { depthLadder, sizeWithin } from "../chain/depth.js";
 import { getTargets, planRebalance, setTargets } from "../market/rebalance.js";
+import { openKey, type OpenResult } from "../notify/open-verdict.js";
+import { sampleOpens } from "../market/history.js";
+import { getMarketSession, toEasternParts } from "../market/session.js";
+import { getWatchlist } from "../market/watchlist.js";
 import { createIntent, maxTradeUsd } from "../chain/trade.js";
 import { recordSpend } from "../chain/guardrails.js";
 import { checkPin, hasPin, normalisePin, removePin, setPin, validPin, type PinCheck } from "../auth/pin.js";
@@ -603,6 +607,68 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         // In order, as sentences, so the codes don't run together when spoken.
         const spoken = plan.legs.map((l, i) => `${i === 0 ? capitalise(l.side) : `Then ${l.side}`} ${usd(l.usd)} of ${name(l.ticker)}, code ${codes[`${l.side}:${l.ticker}`].split("").join(" ")}.`);
         return say(`${note}${plan.legs.length} trades are ready to sign for the next 30 minutes, sales first so they pay for the buys. ${spoken.join(" ")} They're also in the Afterhours app.`, data(codes));
+      }),
+  );
+
+  server.registerTool(
+    "how_did_the_open_go",
+    {
+      title: "Did the overnight move hold at the open?",
+      description:
+        "After the US market opens, compares how each share actually opened with the move its token had called overnight, for one stock or for the names the user holds and watches. Use for 'how did the open go?', 'did Tesla's weekend move hold?', 'was the token right this morning?'.",
+      inputSchema: { stock: z.string().optional() },
+      outputSchema: {
+        dataSource: z.enum(["live", "sample"]),
+        date: z.string().nullable(),
+        results: z.array(z.object({ ticker: z.string(), calledPercent: z.number(), openPercent: z.number(), held: z.boolean() })),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ stock }) =>
+      guard(async () => {
+        const only = stock ? resolveSymbol(stock) : null;
+        if (stock && !only) return fail(`I don't have a tokenized stock for "${stock}".`);
+        const now = svc.now();
+        let date: string | null = null;
+        let results: OpenResult[] = [];
+        if (svc.sample) {
+          const pick = only ? [only.ticker] : ["TSLA", "NVDA", "AAPL"];
+          results = pick.map((t) => {
+            const last = sampleOpens(t, now).at(-1)!;
+            date = last.date;
+            return { ticker: t, calledBps: last.overnightBps, openBps: last.openBps };
+          });
+        } else {
+          for (let back = 0; back < 5 && !results.length; back += 1) {
+            const d = toEasternParts(new Date(now - back * 86_400_000)).date;
+            const found = await svc.store.get<OpenResult[]>(openKey(d));
+            if (found?.length) {
+              date = d;
+              results = found;
+            }
+          }
+          if (!results.length) {
+            const s = getMarketSession(new Date(now));
+            return fail(s.isRegularHours ? "I'm still scoring this morning's open. Ask again in a few minutes." : "I don't have a recent open scored yet. It's ready a few minutes after 9:30 a.m. Eastern.");
+          }
+          const mine = new Set([...(caller.wallet ? ((await within(svc.holdings.read(caller.wallet), 400)) ?? []).map((h) => h.ticker) : []), ...(await getWatchlist(svc.store, caller.sub))]);
+          results = only
+            ? results.filter((r) => r.ticker === only.ticker)
+            : [...results].sort((a, b) => Number(mine.has(b.ticker)) - Number(mine.has(a.ticker)) || Math.abs(b.calledBps) - Math.abs(a.calledBps)).slice(0, 3);
+          if (!results.length) return fail(`I didn't score ${only!.spoken} at that open.`);
+        }
+        const held = (r: OpenResult) => Math.abs(r.calledBps) < 20 || Math.sign(r.calledBps) === Math.sign(r.openBps);
+        const pctS = (b: number) => `${b >= 0 ? "up" : "down"} ${(Math.abs(b) / 100).toFixed(1)} percent`;
+        const lines = results.map((r) => {
+          const n = listingByTicker(r.ticker)?.spoken ?? r.ticker;
+          return `${capitalise(n)} opened ${pctS(r.openBps)}; its token had called ${pctS(r.calledBps)}${held(r) ? "" : ", so that one didn't hold"}.`;
+        });
+        const when = date === toEasternParts(new Date(now)).date ? "This morning" : `At the ${new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" })} open`;
+        return say(`${svc.sample ? "Using sample data. " : ""}${when}: ${lines.join(" ")}`, {
+          dataSource: svc.sample ? "sample" : "live",
+          date,
+          results: results.map((r) => ({ ticker: r.ticker, calledPercent: r.calledBps / 100, openPercent: r.openBps / 100, held: held(r) })),
+        });
       }),
   );
 }

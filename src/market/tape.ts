@@ -27,6 +27,7 @@ import { settlePending } from "../chain/settle.js";
 import { sendDueBriefings } from "../notify/briefing.js";
 import { runDuePlans } from "../chain/recurring.js";
 import { checkWallets } from "../notify/wallet-watch.js";
+import { trackOpen } from "../notify/open-verdict.js";
 import { triggerArmed } from "../chain/trade.js";
 import { getZone } from "./zones.js";
 import { refreshOpenHistoryIfStale } from "./history.js";
@@ -135,6 +136,8 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   await runDuePlans(svc, prices).catch(() => []);
   // Positions that left (or arrived in) a wallet without a trade we prepared.
   await checkWallets(svc, prices).catch(() => 0);
+  // Just before 9:30 keep the overnight call; a few minutes after, score it.
+  await trackOpen(svc, board, readings).catch(() => 0);
 
   // Once a day, rebuild the open track record from public history (background).
   void refreshOpenHistoryIfStale(svc).catch(() => false);
