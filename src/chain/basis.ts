@@ -34,9 +34,25 @@ export interface PositionBasis {
   invested: number;
 }
 
+/** One balance change, as it would appear on a statement. */
+export interface TradeRow {
+  signature: string;
+  /** Unix ms; null when the chain didn't say. */
+  at: number | null;
+  ticker: string;
+  kind: "buy" | "sell" | "transfer_in" | "transfer_out";
+  qty: number;
+  /** USDC paid (buy) or received (sell); null when it wasn't a USDC trade. */
+  usdc: number | null;
+  /** Gain on a sale at average cost; null otherwise or when the cost is unknown. */
+  realized: number | null;
+}
+
 export interface WalletBasis {
   wallet: string;
   positions: Record<string, PositionBasis>;
+  /** Every change seen, oldest first (the last 1,000). */
+  trades?: TradeRow[];
   /** Newest signature processed. */
   lastSignature: string | null;
   /** Transactions read so far. */
@@ -86,8 +102,9 @@ export function balanceDeltas(wallet: string, pre: TokenBalance[] = [], post: To
 
 const empty = (): PositionBasis => ({ qty: 0, coveredQty: 0, cost: 0, realized: 0, buys: 0, sells: 0, invested: 0 });
 
-/** Applies one transaction's deltas to the positions, average-cost. */
-export function applyDeltas(positions: Record<string, PositionBasis>, deltas: Map<string, number>): void {
+/** Applies one transaction's deltas to the positions, average-cost. Returns the rows it made. */
+export function applyDeltas(positions: Record<string, PositionBasis>, deltas: Map<string, number>): Omit<TradeRow, "signature" | "at">[] {
+  const rows: Omit<TradeRow, "signature" | "at">[] = [];
   const usdc = deltas.get(USDC.mint) ?? 0;
   const moved = [...deltas].filter(([mint]) => listingByMint(mint));
   for (const [mint, d] of moved) {
@@ -103,18 +120,22 @@ export function applyDeltas(positions: Record<string, PositionBasis>, deltas: Ma
         p.invested += -usdc;
         p.buys += 1;
       }
+      rows.push({ ticker, kind: priced ? "buy" : "transfer_in", qty: d, usdc: priced ? -usdc : null, realized: null });
     } else {
       const sold = Math.min(-d, p.qty);
       const share = p.qty > 0 ? sold / p.qty : 0;
       const coveredSold = p.coveredQty * share;
       const costOut = p.cost * share;
-      if (priced && coveredSold > 0) p.realized += usdc * (coveredSold / sold) - costOut;
+      const gain = priced && coveredSold > 0 ? usdc * (coveredSold / sold) - costOut : null;
+      if (gain !== null) p.realized += gain;
       if (priced) p.sells += 1;
+      rows.push({ ticker, kind: priced ? "sell" : "transfer_out", qty: -d, usdc: priced ? usdc : null, realized: gain === null ? null : Math.round(gain * 100) / 100 });
       p.qty -= sold;
       p.coveredQty -= coveredSold;
       p.cost -= costOut;
     }
   }
+  return rows;
 }
 
 /**
@@ -126,13 +147,13 @@ export async function indexWallet(svc: Services, wallet: string, fetchImpl: type
   const held = await svc.store.get<WalletBasis>(key(wallet));
   const basis: WalletBasis = held ?? { wallet, positions: {}, lastSignature: null, transactions: 0, indexedAt: 0, truncated: false };
 
-  const fresh: { signature: string; err: unknown }[] = [];
+  const fresh: { signature: string; err: unknown; blockTime?: number | null }[] = [];
   let before: string | undefined;
   for (let page = 0; page < (held ? 10 : FIRST_PASS_PAGES); page += 1) {
     const opts: Record<string, unknown> = { limit: PAGE, commitment: "confirmed" };
     if (before) opts.before = before;
     if (basis.lastSignature) opts.until = basis.lastSignature;
-    const sigs = (await rpc<{ signature: string; err: unknown }[]>("getSignaturesForAddress", [wallet, opts])) ?? [];
+    const sigs = (await rpc<{ signature: string; err: unknown; blockTime?: number | null }[]>("getSignaturesForAddress", [wallet, opts])) ?? [];
     fresh.push(...sigs);
     if (sigs.length < PAGE) break;
     before = sigs.at(-1)!.signature;
@@ -152,10 +173,12 @@ export async function indexWallet(svc: Services, wallet: string, fetchImpl: type
         ]).catch(() => null),
       ),
     );
-    for (const tx of txs) {
-      if (!tx?.meta || tx.meta.err) continue;
-      applyDeltas(basis.positions, balanceDeltas(wallet, tx.meta.preTokenBalances, tx.meta.postTokenBalances));
-    }
+    txs.forEach((tx, j) => {
+      if (!tx?.meta || tx.meta.err) return;
+      const made = applyDeltas(basis.positions, balanceDeltas(wallet, tx.meta.preTokenBalances, tx.meta.postTokenBalances));
+      const { signature, blockTime } = batch[j];
+      basis.trades = [...(basis.trades ?? []), ...made.map((r) => ({ ...r, signature, at: blockTime ? blockTime * 1000 : null }))].slice(-1000);
+    });
   }
   if (fresh.length) basis.lastSignature = fresh[0].signature;
   basis.transactions += ordered.length;
@@ -190,5 +213,22 @@ export function sampleBasis(wallet: string, now: number): WalletBasis {
     TSLA: { qty: 4.25, coveredQty: 4.25, cost: 4.25 * 318.9, realized: 61.2, buys: 3, sells: 1, invested: 5.25 * 318.9 },
     SPY: { qty: 1.8, coveredQty: 1.8, cost: 1.8 * 701.5, realized: 0, buys: 6, sells: 0, invested: 1.8 * 701.5 },
   };
-  return { wallet, positions, lastSignature: null, transactions: 41, indexedAt: now, truncated: false };
+  // A plausible history behind those positions, spread over the summer.
+  const trades: TradeRow[] = [];
+  const day = 86_400_000;
+  let n = 0;
+  for (const [ticker, p] of Object.entries(positions)) {
+    const bought = p.invested / (p.cost / p.coveredQty);
+    for (let i = 0; i < p.buys; i += 1) {
+      n += 1;
+      trades.push({ signature: `sample${String(n).padStart(3, "0")}`, at: now - (120 - n * 4) * day, ticker, kind: "buy", qty: bought / p.buys, usdc: p.invested / p.buys, realized: null });
+    }
+    if (p.sells) {
+      n += 1;
+      const sold = bought - p.qty;
+      trades.push({ signature: `sample${String(n).padStart(3, "0")}`, at: now - (120 - n * 4) * day, ticker, kind: "sell", qty: sold, usdc: sold * (p.cost / p.coveredQty) + p.realized, realized: p.realized });
+    }
+  }
+  trades.sort((a, b) => a.at! - b.at!);
+  return { wallet, positions, trades, lastSignature: null, transactions: 41, indexedAt: now, truncated: false };
 }

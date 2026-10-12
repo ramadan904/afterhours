@@ -165,7 +165,7 @@ export function createApp(svc: Services) {
       // /go/123456 is the same page, and the URL a blink client maps to the action (see /actions.json).
       if (/^\/go\/\d{6}$/.test(path) && method === "GET") return confirmPage({ code: path.slice(4) });
       if (path.startsWith("/api/trade")) return await tradeApi(svc, request, url);
-      if (path.startsWith("/api/push/") || path === "/api/tape") return await accountApi(svc, request, url);
+      if (path.startsWith("/api/push/") || path.startsWith("/api/export/") || path === "/api/tape") return await accountApi(svc, request, url);
 
       if (path === "/qr.svg" && method === "GET") return qrSvg(svc, url);
       if (path === "/app") return Response.redirect(`${svc.baseUrl}/app/${url.search}`, 301);

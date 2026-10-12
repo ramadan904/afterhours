@@ -15,6 +15,8 @@ import { lastRegularClose } from "../market/session.js";
 import { listingByTicker, resolveSymbol } from "../market/universe.js";
 import { RateLimit } from "./limit.js";
 import { watchWallet } from "../notify/wallet-watch.js";
+import { readBasis } from "../chain/basis.js";
+import { tradesCsv } from "./export.js";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -42,6 +44,20 @@ export async function accountApi(svc: Services, request: Request, url: URL): Pro
 
   const claims = authenticate(svc, request);
   if (!claims) return json({ error: "unauthorized" }, 401);
+
+  if (path === "/api/export/trades.csv" && request.method === "GET") {
+    const wallet = claims.wallet ?? (svc.sample ? "" : null);
+    if (wallet === null) return json({ error: "No wallet is linked." }, 400);
+    const basis = await readBasis(svc, wallet);
+    if (!basis) return json({ error: "Still reading your wallet's history. Try again in a minute." }, 503);
+    return new Response(tradesCsv(basis.trades ?? []), {
+      headers: {
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="afterhours-trades-${(wallet || "sample").slice(0, 6)}.csv"`,
+        "cache-control": "no-store",
+      },
+    });
+  }
   if (request.method !== "POST") return json({ error: "Not found" }, 404);
   const body = (await request.json().catch(() => ({}))) as { subscription?: unknown; endpoint?: unknown };
 

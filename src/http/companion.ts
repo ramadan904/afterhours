@@ -155,7 +155,7 @@ function rows(list,host){host.innerHTML="";if(!list.length){host.innerHTML="<p c
 async function loadPortfolio(){const r=await tool("my_portfolio");const host=$("portfolio");
  if(r.error||!r.data){host.innerHTML="<p class=empty>"+escH(r.text)+"</p>";return}
  const d=r.data;if(!d.positions.length){host.innerHTML="<p class=empty>"+escH(r.text)+"</p>";return}
- host.innerHTML="<div class=total>"+usd(d.totalUsd)+"</div><div class="+cls(d.changeUsd)+" style='margin-bottom:8px'>"+(d.changeUsd>=0?"+":"−")+usd(Math.abs(d.changeUsd))+" <span class=muted>since the close</span></div><p id=returns class='small muted' style='margin:0 0 8px'></p><div id=prows></div>";loadReturns();
+ host.innerHTML="<div class=total>"+usd(d.totalUsd)+"</div><div class="+cls(d.changeUsd)+" style='margin-bottom:8px'>"+(d.changeUsd>=0?"+":"−")+usd(Math.abs(d.changeUsd))+" <span class=muted>since the close</span></div><p id=returns class='small muted' style='margin:0 0 8px'></p><div id=prows></div><p style='margin:10px 0 0'><button class=small id=csv>Download trade history (CSV)</button></p>";loadReturns();$("csv").onclick=downloadCsv;
  rows(d.positions.map(p=>({ticker:p.ticker,title:cap1(p.name),sub:p.amount+" "+p.ticker+"x",right:usd(p.valueUsd),change:p.changeUsd==null?"–":(p.changeUsd>=0?"+":"−")+usd(Math.abs(p.changeUsd)),sign:p.changeUsd||0})),$("prows"))}
 async function loadStatus(){const r=await tool("market_status");$("status").textContent=r.text}
 const cap1=s=>s.charAt(0).toUpperCase()+s.slice(1);
@@ -185,6 +185,10 @@ async function loadGuards(){const l=await tool("set_spending_limit",{});$("limit
 $("limitForm").addEventListener("submit",async e=>{e.preventDefault();const v=Number($("gLimit").value);if(!(v>0))return;const r=await tool("set_spending_limit",{daily_usd:v});$("limitMsg").textContent=r.text});
 $("gNoLimit").onclick=async()=>{const r=await tool("set_spending_limit",{remove:true});$("limitMsg").textContent=r.text};
 $("sleepForm").addEventListener("submit",async e=>{e.preventDefault();const r=await tool("set_sleep_mode",$("sOn").checked?{on:true,from:$("sFrom").value,until:$("sTo").value}:{on:false});$("sleepMsg").textContent=r.text});
+async function downloadCsv(){const b=$("csv");b.disabled=true;const go=()=>fetch(CFG.base+"/api/export/trades.csv",{headers:{authorization:"Bearer "+st.get("ah_at")}});
+ let r=await go();if(r.status===401&&await refresh())r=await go();
+ if(!r.ok){const j=await r.json().catch(()=>({}));b.textContent=j.error||"Couldn't export right now";b.disabled=false;return}
+ const url=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=url;a.download=(r.headers.get("content-disposition")||"").split("filename=")[1]?.replace(/"/g,"")||"afterhours-trades.csv";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);b.disabled=false}
 async function loadReturns(){const r=await tool("my_returns",{});const host=$("returns");if(!host)return;if(r.error||!r.data||!r.data.totalCostUsd){host.textContent=r.error?r.text:"";return}
  const d=r.data,g=d.totalGainUsd;host.innerHTML="Paid "+usd(d.totalCostUsd)+" · <b class="+cls(g)+">"+(g>=0?"+":"−")+usd(Math.abs(g))+" ("+(g/d.totalCostUsd*100).toFixed(1)+"%)</b> on cost, from your wallet's history"}
 async function loadAlerts(){const r=await tool("list_alerts");const host=$("alerts");const list=(r.data&&r.data.alerts)||[];
