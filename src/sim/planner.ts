@@ -296,6 +296,7 @@ export function route(utterance: string): { tool: string; args: Record<string, u
   }
   const topic = explainTopic(t);
   if (topic) return { tool: "explain", args: { topic } };
+  if (/\b(mispriced|dislocations?|arbitrage|arb|out of line|biggest gap against)\b/.test(t)) return { tool: "find_dislocations", args: {} };
   // "Compare Tesla and Nvidia", "Apple versus Microsoft", "which is doing better, Coinbase or Strategy?"
   if (/\b(compare|versus|vs\.?|which is doing better|which one is (doing )?better)\b/.test(t)) {
     const body = t.replace(/^.*?\b(compare|which is doing better|which one is (doing )?better)\b,?/, "").replace(/\b(versus|vs\.?|or|with|to)\b/g, " and ");

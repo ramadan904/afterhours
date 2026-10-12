@@ -25,7 +25,7 @@ import { addPlan, cadencePhrase, listPlans, MAX_PLANS, parseWeekday, planRecord,
 import { listingByTicker, resolveSymbol } from "../market/universe.js";
 import { channelCount } from "../notify/push.js";
 import { readBasis } from "../chain/basis.js";
-import { depthLadder, sizeWithin } from "../chain/depth.js";
+import { depthLadder, impactAt, sizeWithin } from "../chain/depth.js";
 import { getTargets, planRebalance, setTargets } from "../market/rebalance.js";
 import { openKey, type OpenResult } from "../notify/open-verdict.js";
 import { recapSentence, setWeekly, weeklyOn, weekRecap } from "../notify/weekly.js";
@@ -905,6 +905,59 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
           dataSource: board.source,
           rows: rows.map(({ r: _r, ...x }) => x),
         });
+      }),
+  );
+
+  server.registerTool(
+    "find_dislocations",
+    {
+      title: "Tokens out of line with their live shares",
+      description:
+        "During US market hours, finds tokenized stocks trading away from their live share price by more than it would cost to trade them (Jupiter's real quote at $1,000), biggest net gap first. Outside market hours, explains why a gap then is a bet on the open, not a dislocation. Use for 'any tokens mispriced right now?', 'where's the biggest gap against the stock?', 'find me dislocations'.",
+      inputSchema: { size_usd: z.number().positive().max(100_000).optional().describe("Trade size to cost against. Default $1,000.") },
+      outputSchema: {
+        dataSource: z.enum(["jupiter", "sample"]),
+        marketOpen: z.boolean(),
+        sizeUsd: z.number(),
+        rows: z.array(z.object({ ticker: z.string(), name: z.string(), gapPercent: z.number(), costPercent: z.number(), netPercent: z.number(), side: z.enum(["buy", "sell"]) })),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ size_usd }) =>
+      guard(async () => {
+        const size = size_usd ?? 1000;
+        const { board, readings, session } = await kit.allReadings();
+        const note = board.source === "sample" ? "Using sample data. " : "";
+        const base = { dataSource: board.source, marketOpen: session.isRegularHours, sizeUsd: size };
+        if (!session.isRegularHours) {
+          return say(
+            `${note}The share market is shut, so a token's move now is a bet on the next open, not a gap anyone can close against the stock. Ask me during market hours, 9:30 a.m. to 4 p.m. Eastern, and I'll look for real dislocations.`,
+            { ...base, rows: [] },
+          );
+        }
+        // The biggest live gaps, then what it would cost to trade each.
+        const live = readings.filter((r) => r.kind === "live_gap" && r.gapBps !== null && Math.abs(r.gapBps) >= 10);
+        const top = [...live].sort((a, b) => Math.abs(b.gapBps!) - Math.abs(a.gapBps!)).slice(0, 6);
+        const costed = await Promise.all(
+          top.map(async (r) => {
+            // A rich token is sold (or not bought); a cheap one is bought.
+            const side: "buy" | "sell" = r.gapBps! < 0 ? "buy" : "sell";
+            const cost = await within(impactAt(svc, r.ticker, side, size, r.tokenPrice), 900);
+            return cost ? { r, side, costBps: cost.impactBps, netBps: Math.abs(r.gapBps!) - cost.impactBps } : null;
+          }),
+        );
+        const rows = costed
+          .filter((x): x is NonNullable<typeof x> => x !== null && x.netBps > 0)
+          .sort((a, b) => b.netBps - a.netBps)
+          .map((x) => ({ ticker: x.r.ticker, name: x.r.spoken, gapPercent: x.r.gapBps! / 100, costPercent: Math.round(x.costBps) / 100, netPercent: Math.round(x.netBps) / 100, side: x.side }));
+        if (!rows.length) {
+          return say(`${note}Nothing worth it right now: every token is within its trading cost of its share price at ${usd(size)}.`, { ...base, rows });
+        }
+        const said = rows.slice(0, 3).map((x) => `${x.name}, ${x.gapPercent > 0 ? "rich" : "cheap"} by ${Math.abs(x.gapPercent).toFixed(2)} percent against about ${x.costPercent.toFixed(2)} to trade`);
+        return say(
+          `${note}Against live share prices, at ${usd(size)}: ${listJoin(said)}. That's before any fees on the stock side, and gaps like these usually close fast.`,
+          { ...base, rows },
+        );
       }),
   );
 }
