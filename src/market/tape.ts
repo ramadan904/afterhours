@@ -78,13 +78,38 @@ function decode(bucket: Bucket): TapePoint[] {
   });
 }
 
+/**
+ * Decoded buckets whose six hours are over, per store. Samples are written at
+ * the time they're taken, so a finished bucket doesn't change: every stock
+ * check would otherwise fetch and decode up to nine of them. Writes from this
+ * process drop the bucket they touch.
+ */
+const finished = new WeakMap<Services["store"], Map<number, readonly TapePoint[]>>();
+/** Grace after a bucket's end for a sample another instance is still writing. */
+const SETTLE_MS = 10 * 60_000;
+
+async function bucketPoints(svc: Services, start: number, now: number): Promise<readonly TapePoint[]> {
+  let cache = finished.get(svc.store);
+  if (!cache) finished.set(svc.store, (cache = new Map()));
+  const hit = cache.get(start);
+  if (hit) return hit;
+  const bucket = await svc.store.get<Bucket>(tapeBucketKey(start));
+  const points = bucket ? decode(bucket) : [];
+  if (bucket && start + BUCKET_MS + SETTLE_MS <= now) {
+    for (const p of points) Object.freeze(p.gaps);
+    cache.set(start, points);
+    for (const k of cache.keys()) if (k < now - KEEP_MS - BUCKET_MS) cache.delete(k);
+  }
+  return points;
+}
+
 /** Samples from `since` (default: the whole 48 hours kept) to now, oldest first. */
 export async function readTape(svc: Services, since = svc.now() - KEEP_MS): Promise<TapePoint[]> {
   const now = svc.now();
   const starts: number[] = [];
   for (let s = bucketOf(Math.max(since, now - KEEP_MS)); s <= now; s += BUCKET_MS) starts.push(s);
-  const buckets = await Promise.all(starts.map((s) => svc.store.get<Bucket>(tapeBucketKey(s))));
-  return buckets.flatMap((b) => (b ? decode(b) : [])).filter((p) => p.at >= since && now - p.at <= KEEP_MS);
+  const buckets = await Promise.all(starts.map((s) => bucketPoints(svc, s, now)));
+  return buckets.flat().filter((p) => p.at >= since && now - p.at <= KEEP_MS);
 }
 
 /** Writes points into their buckets, merging with what each bucket holds. */
@@ -98,6 +123,7 @@ export async function writeTape(store: Services["store"], points: TapePoint[]): 
       for (const p of added) merged.set(p.at, p);
       const sorted = [...merged.values()].sort((a, b) => a.at - b.at);
       await store.set(tapeBucketKey(start), encode(sorted), BUCKET_TTL_S);
+      finished.get(store)?.delete(start);
     }),
   );
 }

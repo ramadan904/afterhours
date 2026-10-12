@@ -68,6 +68,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | **Cards for screens** | The brief, stock, portfolio and trade tools declare **MCP Apps** `ui://` cards, so hosts with a screen (Echo Show, Fire TV, any MCP Apps client) show a visual card next to the spoken answer. These are dependency-free HTML views that follow the host's theme; the trade card has the code, a QR and a "Review and sign" link. |
 | **Alexa+ simulator** | `/sim/`: Alexa+'s MCP client is partner-gated, so this page plays its part. It runs the real OAuth flow, then voice in, voice out, with a live trace of every MCP call and its latency. The planner is **Claude on Amazon Bedrock** when AWS credentials are present, otherwise a deterministic intent matcher. |
 | **Conformance check** | `npm run conformance -- <url>` checks a deployment against the Alexa+ requirements and measures p50/p95 latency over the network. |
+| **Load tested** | `npm run load`: a realistic nighttime mix of MCP calls from up to 100 listeners at once. One Node process on one core serves **~570 requests/s with zero failures, p99 85 ms at 20 listeners and 331 ms at 100**. Profiling took it from 95 to 572 requests/s; [docs/PERFORMANCE.md](docs/PERFORMANCE.md) has the numbers, the profiles and how to reproduce them. |
 
 ### Tools
 

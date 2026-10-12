@@ -69,6 +69,11 @@ by voice:
   price *and* the share's last print), behind a stale-while-revalidate cache. Access tokens are self-contained JWTs, so
   authenticating a request is one HMAC with no database read. Measured locally: `tools/call` p95 under 10 ms; the
   conformance script measures it over the network against any deployment.
+- **Load tested, then profiled:** `npm run load` sends a realistic nighttime mix of MCP calls from up to 100
+  listeners at once. One Node process on one core serves ~570 requests/s with zero failures, and p99 stays under the
+  500 ms budget even at 100 listeners (331 ms). CPU profiles found three costs: tool definitions rebuilt per request,
+  the overnight tape re-decoded per stock check, and time-zone formatting in hot loops. Fixing them took the same test
+  from 95 to 572 requests/s (6×). Full numbers and method: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 - **Market-aware language:** an NYSE calendar (holidays, half days, DST) labels every reading with its session, and
   names the reference the way a person would ("since Friday's close", "against the live share price").
 - **Trades:** proposals live 15 minutes, are capped at $500 by voice, and are checked against holdings for sells. The

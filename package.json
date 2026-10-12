@@ -14,7 +14,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "conformance": "tsx scripts/conformance.ts",
-    "token": "tsx scripts/mint-token.ts"
+    "token": "tsx scripts/mint-token.ts",
+    "load": "tsx scripts/load.ts"
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.34.4",

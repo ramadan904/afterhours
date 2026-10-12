@@ -10,8 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { Services } from "../services.js";
-import { registerTools } from "../mcp/tools.js";
-import { registerApps } from "../mcp/apps.js";
+import { asCaller, install, sharedValidator } from "../mcp/registry.js";
 import {
   authenticate,
   authorizationServerMetadata,
@@ -103,18 +102,18 @@ async function handleMcp(svc: Services, request: Request): Promise<Response> {
     {
       instructions:
         "Afterhours answers questions about tokenized US stocks (xStocks on Solana) at any hour, including when the stock market is closed. Tool results are written to be spoken. Trades are only ever proposed: the user signs them in their own wallet.",
+      jsonSchemaValidator: sharedValidator,
     },
   );
   const extra = authInfo.extra as { sub: string; wallet: string | null };
-  registerTools(server, svc, { sub: extra.sub, wallet: extra.wallet });
-  registerApps(server, svc);
+  install(server, svc);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
   });
   await server.connect(transport);
   try {
-    return await transport.handleRequest(request, { authInfo });
+    return await asCaller({ sub: extra.sub, wallet: extra.wallet }, () => transport.handleRequest(request, { authInfo }));
   } finally {
     // The JSON response is fully built by now; closing frees the per-request server.
     void transport.close();

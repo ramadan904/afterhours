@@ -71,11 +71,28 @@ const formatter = new Intl.DateTimeFormat("en-US", {
   weekday: "short",
 });
 
+// formatToParts is slow next to everything else a brief does, and a brief
+// asks about the same few minutes hundreds of times. Every zone offset is a
+// whole number of minutes, so the answer for a minute is the answer for every
+// instant in it.
+const etCache = new Map<number, Readonly<EtParts>>();
+const ET_CACHE_MAX = 4096;
+
 /**
  * Wall-clock time in New York. Uses Intl rather than a fixed UTC offset so DST
  * transitions are handled by the platform's tz database instead of by us.
  */
 export function toEasternParts(at: Date): EtParts {
+  const minute = Math.floor(at.getTime() / 60_000);
+  const hit = etCache.get(minute);
+  if (hit) return { ...hit };
+  const parts = readEasternParts(at);
+  if (etCache.size >= ET_CACHE_MAX) etCache.clear();
+  etCache.set(minute, parts);
+  return { ...parts };
+}
+
+function readEasternParts(at: Date): EtParts {
   const parts = formatter.formatToParts(at);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
 
@@ -272,11 +289,17 @@ export function easternToUtc(etDate: string, minutes: number): Date {
   return new Date(Date.UTC(y, m - 1, d, 0, minutes) + 5 * 3600_000);
 }
 
+const closeCache = new Map<number, number>();
+
 /**
  * When the regular session last closed at or before `at`: today's close if it
  * has passed, else the most recent trading day's (Friday's, over a weekend).
  */
 export function lastRegularClose(at: Date = new Date()): Date {
+  // Closes fall on whole minutes, so the answer holds for the whole minute.
+  const minute = Math.floor(at.getTime() / 60_000);
+  const hit = closeCache.get(minute);
+  if (hit !== undefined) return new Date(hit);
   const today = toEasternParts(at).date;
   const noon = new Date(`${today}T12:00:00Z`);
   for (let back = 0; back <= 7; back += 1) {
@@ -285,7 +308,11 @@ export function lastRegularClose(at: Date = new Date()): Date {
     const weekday = day.getUTCDay();
     if (weekday === 0 || weekday === 6 || iso in MARKET_HOLIDAYS) continue;
     const close = easternToUtc(iso, regularCloseMinute(iso));
-    if (close.getTime() <= at.getTime()) return close;
+    if (close.getTime() <= at.getTime()) {
+      if (closeCache.size >= ET_CACHE_MAX) closeCache.clear();
+      closeCache.set(minute, close.getTime());
+      return close;
+    }
   }
   return new Date(at.getTime() - 86_400_000);
 }

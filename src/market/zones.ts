@@ -79,8 +79,13 @@ export function zoneName(zone: Zone): string {
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-/** Calendar date, weekday and minutes in a zone. */
+const zoneCache = new Map<string, { date: string; weekday: number; minutes: number }>();
+
+/** Calendar date, weekday and minutes in a zone (memoized per minute: every zone offset is whole minutes). */
 export function zoneParts(at: Date, tz: string): { date: string; weekday: number; minutes: number } {
+  const k = `${tz}|${Math.floor(at.getTime() / 60_000)}`;
+  const hit = zoneCache.get(k);
+  if (hit) return { ...hit };
   let f = formatters.get(tz);
   if (!f) {
     f = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, weekday: "short" });
@@ -88,11 +93,14 @@ export function zoneParts(at: Date, tz: string): { date: string; weekday: number
   }
   const parts = f.formatToParts(at);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return {
+  const out = {
     date: `${get("year")}-${get("month")}-${get("day")}`,
     weekday: Math.max(0, ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"))),
     minutes: (Number(get("hour")) % 24) * 60 + Number(get("minute")),
   };
+  if (zoneCache.size >= 4096) zoneCache.clear();
+  zoneCache.set(k, out);
+  return { ...out };
 }
 
 const key = (sub: string) => `prefs:${sub}`;

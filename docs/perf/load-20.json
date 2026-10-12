@@ -1,0 +1,82 @@
+{
+  "target": "local sample-data server",
+  "concurrency": 20,
+  "seconds": 20,
+  "node": "v22.22.0",
+  "at": "2026-10-12T11:27:48.788Z",
+  "overall": {
+    "requests": 11462,
+    "failed": 0,
+    "p50": 30.5,
+    "p95": 63.3,
+    "p99": 85,
+    "max": 255.4,
+    "rps": 572.2
+  },
+  "byTool": {
+    "overnight_brief": {
+      "requests": 2935,
+      "failed": 0,
+      "p50": 30.4,
+      "p95": 62.6,
+      "p99": 84.9,
+      "max": 163.8
+    },
+    "check_stock": {
+      "requests": 2913,
+      "failed": 0,
+      "p50": 31.5,
+      "p95": 64.8,
+      "p99": 86.7,
+      "max": 172.1
+    },
+    "market_status": {
+      "requests": 1372,
+      "failed": 0,
+      "p50": 30.1,
+      "p95": 65,
+      "p99": 86.2,
+      "max": 168.3
+    },
+    "my_portfolio": {
+      "requests": 1107,
+      "failed": 0,
+      "p50": 30.1,
+      "p95": 62.3,
+      "p99": 94.3,
+      "max": 255.4
+    },
+    "sector_moves": {
+      "requests": 1047,
+      "failed": 0,
+      "p50": 29.8,
+      "p95": 60.6,
+      "p99": 81.7,
+      "max": 108.6
+    },
+    "market_calendar": {
+      "requests": 697,
+      "failed": 0,
+      "p50": 30.3,
+      "p95": 62.4,
+      "p99": 80.8,
+      "max": 89.9
+    },
+    "explain": {
+      "requests": 708,
+      "failed": 0,
+      "p50": 30,
+      "p95": 64.3,
+      "p99": 81.5,
+      "max": 132.7
+    },
+    "tools/list": {
+      "requests": 683,
+      "failed": 0,
+      "p50": 30.4,
+      "p95": 60.6,
+      "p99": 79.5,
+      "max": 140.3
+    }
+  }
+}

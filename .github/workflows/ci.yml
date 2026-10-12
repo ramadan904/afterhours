@@ -13,6 +13,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # A short load test: fails if more than 1% of requests fail under concurrency.
+      - run: npx tsx scripts/load.ts --concurrency 20 --seconds 5
       # The scripted planner is gated on the set it was tuned on, and its
       # score on the held-out set is reported as it is: that gap is why the
       # real planner is Claude on Bedrock.
