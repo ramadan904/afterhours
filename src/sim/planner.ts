@@ -290,6 +290,17 @@ export function route(utterance: string): { tool: string; args: Record<string, u
   }
   const topic = explainTopic(t);
   if (topic) return { tool: "explain", args: { topic } };
+  // "Compare Tesla and Nvidia", "Apple versus Microsoft", "which is doing better, Coinbase or Strategy?"
+  if (/\b(compare|versus|vs\.?|which is doing better|which one is (doing )?better)\b/.test(t)) {
+    const body = t.replace(/^.*?\b(compare|which is doing better|which one is (doing )?better)\b,?/, "").replace(/\b(versus|vs\.?|or|with|to)\b/g, " and ");
+    const names = splitNames(body.replace(/\b(the )?(tokens?|stocks?)\b/g, " ")).filter((x) => resolveSymbol(x));
+    if (names.length >= 2) return { tool: "compare_stocks", args: { stocks: names } };
+  }
+  // The calendar: "is the market open on Thanksgiving?", "when's the next market holiday?"
+  if (/\b(next|upcoming)\b.*\b(market )?(holiday|closure|half day|early close)s?\b/.test(t)) return { tool: "market_calendar", args: {} };
+  // Yes/no about a day ("is the market open Friday?"); "when does it open on Monday?" is market_status.
+  const onDay = /^(?:is|will|are)\b.*\b(?:market|stock market|exchange)\b.*\bopen\b\s+(?:on\s+)?(.+?)\??$/.exec(t) ?? /\bis\s+(.+?)\s+a\s+(?:half day|holiday|trading day)\??$/.exec(t);
+  if (onDay && !/^(now|right now|yet)$/.test(onDay[1].trim())) return { tool: "market_calendar", args: { day: onDay[1].trim() } };
   // Sectors: "how's tech doing tonight?", "which sectors are moving?"
   if (/\bsectors?\b/.test(t) && /\b(which|what|how|moving|doing)\b/.test(t) && !resolveSector(t.replace(/\b(which|what|how|are|is|the|sectors?|moving|doing|tonight|today|overnight)\b/g, " ").trim())) {
     return { tool: "sector_moves", args: {} };

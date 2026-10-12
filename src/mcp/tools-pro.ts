@@ -32,6 +32,8 @@ import { recapSentence, setWeekly, weeklyOn, weekRecap } from "../notify/weekly.
 import { readActivity } from "../account/activity.js";
 import { deleteData } from "../account/data.js";
 import { SECTORS, resolveSector, sectorById, sectorReadings } from "../market/sectors.js";
+import { dayStatus, resolveDay, spokenDate, todayEt, upcoming } from "../market/calendar-talk.js";
+import { readBetas } from "../market/beta.js";
 import { rankByGap, NOISE_FLOOR_BPS } from "../market/gap.js";
 import { whenSpoken } from "../market/speech.js";
 import { sampleOpens } from "../market/history.js";
@@ -827,6 +829,82 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
             members: mine.map((r) => ({ ticker: r.ticker, name: r.spoken, gapPercent: r.gapBps! / 100 })),
           },
         );
+      }),
+  );
+
+  server.registerTool(
+    "market_calendar",
+    {
+      title: "Is the market open on a day? Upcoming holidays",
+      description:
+        "Says whether the US stock market is open on a given day (a holiday name like Thanksgiving, a date, a weekday, tomorrow), including early closes, or lists the next closures. Tokenized stocks trade every day regardless. Use for 'is the market open on Thanksgiving?', 'is the market open Friday?', 'when's the next market holiday?', 'is Christmas Eve a half day?'.",
+      inputSchema: { day: z.string().optional().describe("The day as said. Omit for the next holidays and early closes.") },
+      outputSchema: {
+        days: z.array(z.object({ date: z.string(), status: z.enum(["open", "closed", "half_day", "weekend", "unknown"]), label: z.string().nullable() })),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
+    },
+    async ({ day }) =>
+      guard(async () => {
+        const today = todayEt(svc.now());
+        const tokens = "Tokenized stocks still trade around the clock.";
+        if (!day) {
+          const next = upcoming(today, 3);
+          if (!next.length) return fail("My market calendar doesn't reach that far yet.");
+          const said = next.map((d) => (d.status === "half_day" ? `an early close at 1 p.m. on ${spokenDate(d.date)} (${d.label})` : `${d.label} on ${spokenDate(d.date)}`));
+          return say(`The next market closures: ${listJoin(said)}. ${tokens}`, { days: next });
+        }
+        const date = resolveDay(day, today);
+        if (!date) return fail(`I didn't catch a day in "${day}". Try a date like December 24, or a holiday like Thanksgiving.`);
+        const v = dayStatus(date);
+        const when = date === today ? "today" : spokenDate(date);
+        const text = {
+          open: `Yes, the market is open ${date === today ? "today" : `on ${when}`}, 9:30 a.m. to 4 p.m. Eastern.`,
+          half_day: `It's open ${date === today ? "today" : `on ${when}`}, but closes early, at 1 p.m. Eastern, for ${v.label}.`,
+          closed: `No. The market is closed ${date === today ? "today" : `on ${when}`} for ${v.label}. ${tokens}`,
+          weekend: `No, ${date === today ? "today" : when} is a weekend. ${tokens}`,
+          unknown: "My market calendar doesn't cover that date yet.",
+        }[v.status];
+        return say(text, { days: [v] });
+      }),
+  );
+
+  server.registerTool(
+    "compare_stocks",
+    {
+      title: "Compare two to four tokenized stocks",
+      description:
+        "Side by side: each name's token price and its move against the share (since the last close while the market is shut), with how strongly each tends to move with the market. Use for 'compare Tesla and Nvidia', 'Apple versus Microsoft', 'which is doing better, Coinbase or Strategy?'.",
+      inputSchema: { stocks: z.array(z.string().min(1)).min(2).max(4).describe("The names or tickers as said.") },
+      outputSchema: {
+        dataSource: z.enum(["jupiter", "sample"]),
+        rows: z.array(z.object({ ticker: z.string(), name: z.string(), tokenPrice: z.number(), gapPercent: z.number().nullable(), beta: z.number().nullable() })),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ stocks }) =>
+      guard(async () => {
+        const listings = stocks.map((x) => ({ said: x, l: resolveSymbol(x) }));
+        const unknown = listings.filter((x) => !x.l).map((x) => `"${x.said}"`);
+        if (unknown.length) return fail(`I don't have a tokenized stock for ${listJoin(unknown)}.`);
+        const { board, readings } = await kit.allReadings();
+        const betas = await readBetas(svc);
+        const rows = [...new Map(listings.map((x) => [x.l!.ticker, x.l!])).values()].map((l) => {
+          const r = readings.find((x) => x.ticker === l.ticker);
+          return { ticker: l.ticker, name: l.spoken, tokenPrice: r?.tokenPrice ?? 0, gapPercent: r?.gapBps == null ? null : r.gapBps / 100, beta: betas[l.ticker]?.beta ?? null, r };
+        });
+        if (rows.some((x) => !x.r)) return fail(`I don't have a price for ${listJoin(rows.filter((x) => !x.r).map((x) => x.name))} right now.`);
+        const since = rows.find((x) => x.r!.kind === "overnight_move" || x.r!.kind === "in_line")?.r!.referenceLabel;
+        const moved = (g: number | null) => (g === null ? "with no reference" : Math.abs(g) < 0.2 ? "flat" : `${g >= 0 ? "up" : "down"} ${Math.abs(g).toFixed(1)} percent`);
+        const parts = rows.map((x) => `${possessive(x.name)} token is ${moved(x.gapPercent)}, at ${usd(x.tokenPrice)}`);
+        const ranked = [...rows].filter((x) => x.gapPercent !== null).sort((a, b) => b.gapPercent! - a.gapPercent!);
+        const lead = ranked.length > 1 && ranked[0].gapPercent! - ranked.at(-1)!.gapPercent! >= 0.2 ? ` ${capitalise(ranked[0].name)} is ahead.` : " They're moving about the same.";
+        const withBeta = rows.filter((x) => x.beta !== null);
+        const swing = withBeta.length === rows.length ? ` Usually, ${listJoin(withBeta.map((x) => `${x.name} moves about ${x.beta!.toFixed(1)} times the market`))}.` : "";
+        return say(`${board.source === "sample" ? "Using sample data. " : ""}${since ? `Since ${since}, ` : ""}${listJoin(parts)}.${lead}${swing}`, {
+          dataSource: board.source,
+          rows: rows.map(({ r: _r, ...x }) => x),
+        });
       }),
   );
 }

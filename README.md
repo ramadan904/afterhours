@@ -29,7 +29,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 
 | | |
 | --- | --- |
-| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 31 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
+| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 33 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
 | **Account linking** | OAuth 2.1 authorization code + **PKCE (S256)**. RFC 9728 protected-resource metadata, RFC 8414 server metadata, `resource` bound to the MCP URI, rotating refresh tokens, and a bare `401` for unauthenticated MCP calls, all as Alexa+'s MCP onboarding asks. You link a **Solana wallet by signing a message** (free, can't move funds), or link a watch-only address. |
 | **68 stocks and funds** | Tesla to Coca-Cola, the S&P 500 to gold. Every mint is verified before it ships (exact registry symbol, Backed's `Xs` prefix, Token-2022 owner, matching decimals, exactly one candidate) by `scripts/discover-universe.ts` in CI. Each name answers to the ways it's said ("coke", "J P Morgan", "the Russell"). |
 | **Live data** | Token and share prices from Jupiter (one keyless call returns both legs), balances from Solana mainnet RPC. Prices are served from a stale-while-revalidate cache, so tool calls stay well inside Alexa+'s **500 ms** budget. |
@@ -44,6 +44,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | **Weekly recap** | "How was my week?" Holdings over seven days from a daily price snapshot, who led and who lagged, recurring buys signed, alerts that went off. Pushed Sunday at 6 p.m. local time if you ask. |
 | **The open, scored** | All night the token makes a call; at 9:30 the exchange answers. A few minutes in, everyone holding or watching a name that moved gets "At the open: Tesla +1.9%, Coinbase −0.4%. Tesla's token had called +2.1%; Coinbase's +3.9%. Some overnight moves held, some didn't." "How did the open go?" answers for the rest of the day. |
 | **Is it Tesla, or the market?** | Each name's beta to the S&P 500 is estimated daily from a month of real share closes. Overnight, the S&P 500 token stands in for the market, so `check_stock` can say "Most of that is Tesla's own; the S&P 500 token is up 0.3 percent", or "That's mostly the market". |
+| **Calendar and comparisons** | "Is the market open on Thanksgiving?" "Is Christmas Eve a half day?" "When's the next market holiday?" answered from the NYSE calendar the server already runs on. "Compare Tesla and Nvidia" puts names side by side with how strongly each moves with the market. |
 | **Sectors** | "How's tech doing tonight?" The 68 names in nine sectors (chips, software and cloud, internet and media, consumer, banks and payments, crypto stocks, healthcare, energy and industrials, index funds; "tech" spans the first three), each the equal-weighted average of its members' moves. Sectors can be watched by an alert like a stock: "tell me if crypto stocks move 3 percent." |
 | **Watchlist** | "Add Netflix and Palantir to my watchlist." With 68 names on the board, the briefing leads with the names you follow that actually moved ("On your watchlist: Palantir up 0.8 percent and Netflix up 0.5 percent"), then the rest of the market without repeating them. Editable by voice or in the companion app. |
 | **Scheduled briefing** | "Brief me every weekday at 7." Sent as a push at that time in your own time zone (your portfolio's move, watched names that moved, the biggest movers), once a day, never stale: a briefing more than 15 minutes late waits for tomorrow. Set it by voice or in the companion app. |
@@ -165,7 +166,7 @@ overnight tape: set `CRON_SECRET`, then add repository secrets `AFTERHOURS_URL` 
 ```
 
 - `src/market/`: universe and voice aliases, NYSE calendar and sessions, gap logic, speech phrasing, price sources and cache
-- `src/mcp/tools.ts`: the 31 tools · `src/mcp/apps.ts`: MCP Apps cards
+- `src/mcp/tools.ts`: the 33 tools · `src/mcp/apps.ts`: MCP Apps cards
 - `src/market/tape.ts`: the overnight tape · `src/market/alerts.ts`: alerts that fire with timestamps
 - `src/auth/`: OAuth 2.1 server, signed tokens, wallet signature verification
 - `src/chain/`: Solana balances, trade proposals, Jupiter swap client
