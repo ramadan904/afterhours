@@ -23,6 +23,14 @@ import type { Listing } from "./universe.js";
  */
 export const NOISE_FLOOR_BPS = 20;
 
+/**
+ * Token and share more than 1.5× apart (a 50% premium or a 33% discount) is
+ * not a move, it's a broken price. Large caps don't gap like that between a
+ * close and the next morning; when the live board showed "Super Micro up
+ * 17722 percent", one leg was simply wrong.
+ */
+export const SUSPECT_RATIO = 1.5;
+
 /** During the regular session, a share print older than this is a stalled feed. */
 export const STALE_SHARE_MS = 5 * 60_000;
 
@@ -36,7 +44,13 @@ export type GapKind =
   /** Market open, but the share price has stopped updating. */
   | "stale_reference"
   /** No share price at all. */
-  | "no_reference";
+  | "no_reference"
+  /**
+   * The two legs disagree by more than any real overnight move: one of them
+   * is wrong (a thinly traded token's last swap, or a bad share print). Never
+   * ranked, averaged, alerted on or read out as a move.
+   */
+  | "suspect_price";
 
 export interface GapReading {
   ticker: string;
@@ -100,6 +114,10 @@ export function readGap(
 
   if (bps === null) {
     return { ...base, kind: "no_reference", direction: "flat", referenceLabel: "no share price" };
+  }
+  const ratio = quote.tokenPrice / quote.sharePrice!;
+  if (ratio > SUSPECT_RATIO || ratio < 1 / SUSPECT_RATIO) {
+    return { ...base, gapBps: null, kind: "suspect_price", direction: "flat", referenceLabel: "a price that doesn't add up" };
   }
 
   if (session.isRegularHours) {

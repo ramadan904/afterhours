@@ -10,7 +10,7 @@ export function valuePortfolio(holdings: { ticker: string; amount: number }[], r
       const listing = listingByTicker(h.ticker);
       if (!r || !listing) return null;
       const valueUsd = h.amount * r.tokenPrice;
-      const changeUsd = r.sharePrice && r.kind !== "stale_reference" ? h.amount * (r.tokenPrice - r.sharePrice) : null;
+      const changeUsd = r.sharePrice && r.kind !== "stale_reference" && r.kind !== "suspect_price" ? h.amount * (r.tokenPrice - r.sharePrice) : null;
       return { ticker: h.ticker, name: listing.spoken, amount: h.amount, valueUsd, changeUsd, reading: r };
     })
     .filter((p): p is NonNullable<typeof p> => p !== null)

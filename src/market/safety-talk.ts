@@ -48,7 +48,8 @@ export function rescaleSentence(listing: Listing, from: number, to: number, at: 
 
 export function safetyAnswer(o: { listing: Listing; facts: MintFacts; price: number | null; frozen: boolean | null; now: number; zone: Zone; sample: boolean }): string {
   const { listing, facts: f, price, frozen, now, zone } = o;
-  const name = `The ${listing.spoken} token, ${listing.token},`;
+  // "the S&P 500 fund" already has its article.
+  const name = `The ${listing.spoken.replace(/^the /, "")} token, ${listing.token},`;
   const parts: string[] = [];
   const powers = issuerPowers(f);
   if (f.nonTransferable) parts.push(`${name} can't be transferred at all.`);

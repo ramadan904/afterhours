@@ -90,7 +90,7 @@ export async function removeAlert(store: Store, sub: string, ticker: string): Pr
 
 /** Readings that count: a real gap against a usable reference. */
 function usable(reading: GapReading | undefined): reading is GapReading & { gapBps: number } {
-  return reading !== undefined && reading.gapBps !== null && reading.kind !== "stale_reference" && reading.kind !== "no_reference";
+  return reading !== undefined && reading.gapBps !== null && reading.kind !== "stale_reference" && reading.kind !== "no_reference" && reading.kind !== "suspect_price";
 }
 
 /**

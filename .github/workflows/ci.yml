@@ -40,6 +40,9 @@ jobs:
       - run: node dist/src/node.js & sleep 4
       - run: curl -sf localhost:8787/health | tee health.json
       - run: npx tsx scripts/conformance.ts http://localhost:8787
+      # Lists any token whose two price legs disagree beyond a real move, with Jupiter's raw row.
+      - run: npx tsx scripts/price-audit.ts
+        continue-on-error: true
       # The token safety parser against the real Token-2022 mints.
       - run: npx tsx scripts/token-safety.ts TSLA NVDA SPY AAPL
         continue-on-error: true
