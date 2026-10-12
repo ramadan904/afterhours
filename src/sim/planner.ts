@@ -21,6 +21,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import Anthropic, { BetaFallbackState, betaRefusalFallbackMiddleware } from "@anthropic-ai/sdk";
 import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import { resolveSymbol } from "../market/universe.js";
+import { resolveSector } from "../market/sectors.js";
 import { VERSION } from "../version.js";
 
 const SECRET_ARGS = new Set(["pin", "current_pin", "new_pin"]);
@@ -125,7 +126,7 @@ function amount(text: string): number | null {
 
 /** The stock named anywhere in a phrase, as its first alias; else the raw phrase. */
 function stockIn(text: string): string {
-  return resolveSymbol(text)?.aliases[0] ?? subject(text);
+  return resolveSymbol(text)?.aliases[0] ?? (resolveSector(text) ? text.trim() : subject(text));
 }
 
 /** The stock phrase after a verb, e.g. "of Tesla", "on Nvidia", "is Apple". */
@@ -278,7 +279,7 @@ export function route(utterance: string): { tool: string; args: Record<string, u
       return { tool: "set_alert", args: { stock: stockIn(named), price: Number(level[1]) } };
     }
     const percent = /(\d+(?:\.\d+)?)\s*(?:%|percent)/.exec(t)?.[1] ?? Object.entries(NUMBER_WORDS).find(([w]) => new RegExp(`\\b${w}\\s+percent`).test(t))?.[1];
-    const named = /\b(?:if|when)\s+(.+?)\s+(?:moves|goes|drifts|jumps|drops|is|gets|changes)/.exec(t)?.[1] ?? t;
+    const named = /\b(?:if|when)\s+(.+?)\s+(?:moves?|goes|go|drifts?|jumps?|drops?|is|are|gets?|changes?)\b/.exec(t)?.[1] ?? t;
     return { tool: "set_alert", args: { stock: stockIn(named), percent: Number(percent ?? 2) } };
   }
   const place = /^(?:i'?m|i am|i live|we're|we are)\s+(?:in|at)\s+(.+)$|\b(?:time ?zone|use)\s+(?:is\s+|to\s+)?(.+?)(?:\s+time)?$/.exec(t.replace(/[.!?]+$/, ""));
@@ -289,6 +290,14 @@ export function route(utterance: string): { tool: string; args: Record<string, u
   }
   const topic = explainTopic(t);
   if (topic) return { tool: "explain", args: { topic } };
+  // Sectors: "how's tech doing tonight?", "which sectors are moving?"
+  if (/\bsectors?\b/.test(t) && /\b(which|what|how|moving|doing)\b/.test(t) && !resolveSector(t.replace(/\b(which|what|how|are|is|the|sectors?|moving|doing|tonight|today|overnight)\b/g, " ").trim())) {
+    return { tool: "sector_moves", args: {} };
+  }
+  const sectorSaid = /^(?:how(?:'s| is| are)|what(?:'s| is| are)|check)\s+(?:the\s+)?(.+?)\s*(?:doing|sector)?\s*(?:tonight|today|overnight|this weekend|now)?\??$/.exec(t);
+  if (sectorSaid && !resolveSymbol(sectorSaid[1]) && resolveSector(sectorSaid[1].replace(/\s+(doing|up to)$/, ""))) {
+    return { tool: "sector_moves", args: { sector: resolveSector(sectorSaid[1].replace(/\s+(doing|up to)$/, ""))!.id } };
+  }
   // About the night: one named stock is a stock check; otherwise it's the briefing.
   if (/\b(overnight|last night|while i (was )?(asleep|sleeping|slept))\b/.test(t)) {
     const named = resolveSymbol(t.replace(/\b(overnight|last night|my stocks)\b/g, " "));

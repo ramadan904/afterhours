@@ -29,7 +29,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 
 | | |
 | --- | --- |
-| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 30 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
+| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 31 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
 | **Account linking** | OAuth 2.1 authorization code + **PKCE (S256)**. RFC 9728 protected-resource metadata, RFC 8414 server metadata, `resource` bound to the MCP URI, rotating refresh tokens, and a bare `401` for unauthenticated MCP calls, all as Alexa+'s MCP onboarding asks. You link a **Solana wallet by signing a message** (free, can't move funds), or link a watch-only address. |
 | **68 stocks and funds** | Tesla to Coca-Cola, the S&P 500 to gold. Every mint is verified before it ships (exact registry symbol, Backed's `Xs` prefix, Token-2022 owner, matching decimals, exactly one candidate) by `scripts/discover-universe.ts` in CI. Each name answers to the ways it's said ("coke", "J P Morgan", "the Russell"). |
 | **Live data** | Token and share prices from Jupiter (one keyless call returns both legs), balances from Solana mainnet RPC. Prices are served from a stale-while-revalidate cache, so tool calls stay well inside Alexa+'s **500 ms** budget. |
@@ -44,6 +44,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | **Weekly recap** | "How was my week?" Holdings over seven days from a daily price snapshot, who led and who lagged, recurring buys signed, alerts that went off. Pushed Sunday at 6 p.m. local time if you ask. |
 | **The open, scored** | All night the token makes a call; at 9:30 the exchange answers. A few minutes in, everyone holding or watching a name that moved gets "At the open: Tesla +1.9%, Coinbase −0.4%. Tesla's token had called +2.1%; Coinbase's +3.9%. Some overnight moves held, some didn't." "How did the open go?" answers for the rest of the day. |
 | **Is it Tesla, or the market?** | Each name's beta to the S&P 500 is estimated daily from a month of real share closes. Overnight, the S&P 500 token stands in for the market, so `check_stock` can say "Most of that is Tesla's own; the S&P 500 token is up 0.3 percent", or "That's mostly the market". |
+| **Sectors** | "How's tech doing tonight?" The 68 names in nine sectors (chips, software and cloud, internet and media, consumer, banks and payments, crypto stocks, healthcare, energy and industrials, index funds; "tech" spans the first three), each the equal-weighted average of its members' moves. Sectors can be watched by an alert like a stock: "tell me if crypto stocks move 3 percent." |
 | **Watchlist** | "Add Netflix and Palantir to my watchlist." With 68 names on the board, the briefing leads with the names you follow that actually moved ("On your watchlist: Palantir up 0.8 percent and Netflix up 0.5 percent"), then the rest of the market without repeating them. Editable by voice or in the companion app. |
 | **Scheduled briefing** | "Brief me every weekday at 7." Sent as a push at that time in your own time zone (your portfolio's move, watched names that moved, the biggest movers), once a day, never stale: a briefing more than 15 minutes late waits for tomorrow. Set it by voice or in the companion app. |
 | **Push notifications** | Alexa only speaks when spoken to, so when an alert fires at 2 a.m. Afterhours also sends a Web Push to every device the account turned on: "Tesla went above $400". |
@@ -57,7 +58,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 | **Text alerts (Amazon SNS)** | For phones without web push: verify a number with a six-digit code (hashed, five tries, three an hour) and every notice (alerts, trades ready to sign, wallet warnings, briefings) also arrives by SMS. |
 | **Wallet watch** | Afterhours can't move funds, so it can't protect them, but it can notice. With notifications on, the wallet's xStock balances are compared every 5 minutes; anything that left or arrived without a trade Afterhours prepared and saw confirmed is pushed at once: "4.25 TSLAx left your wallet. About $1,575. If it wasn't you, move what's left to a wallet only you control." |
 | **`.sol` names** | Link a watch-only account as `toly.sol` instead of a 44-character address; names resolve through the Solana Name Service and are checked to be a real key. |
-| **Measured understanding** | `eval/` holds 171 things people say, each with the tool and arguments a planner should pick, scored by meaning ("the S&P" = SPY, "7:00 am" = "7"). The scripted fallback planner scores 99% on the 139 cases it was tuned on and **50% on 32 held-out ones it never saw**, which is exactly why the real planner is Claude on Bedrock; CI gates the first, reports the second, and runs both against Bedrock when an AWS role is configured. |
+| **Measured understanding** | `eval/` holds 175 things people say, each with the tool and arguments a planner should pick, scored by meaning ("the S&P" = SPY, "7:00 am" = "7"). The scripted fallback planner scores 100% on the 143 cases it was tuned on and **50% on 32 held-out ones it never saw**, which is exactly why the real planner is Claude on Bedrock; CI gates the first, reports the second, and runs both against Bedrock when an AWS role is configured. |
 | **Accessible** | The confirm page, companion app and simulator pass an axe-core WCAG 2 A/AA audit in light and dark themes, in CI on every push. |
 | **Track record** | Is the overnight move worth anything? For every market open in the last month, Afterhours compares where the token traded at 9 a.m. with where the share actually opened, from public on-chain (GeckoTerminal) and exchange (Yahoo) history, refreshed daily. "Its token has called the open's direction 16 of the last 20 times." |
 | **Your time zone** | "I'm in Lagos." Every time Afterhours speaks or sends is then local: "It opens tomorrow at 2:30 p.m. Lagos time." Most holders of tokenized US stocks don't live in New York. |
@@ -164,7 +165,7 @@ overnight tape: set `CRON_SECRET`, then add repository secrets `AFTERHOURS_URL` 
 ```
 
 - `src/market/`: universe and voice aliases, NYSE calendar and sessions, gap logic, speech phrasing, price sources and cache
-- `src/mcp/tools.ts`: the 30 tools · `src/mcp/apps.ts`: MCP Apps cards
+- `src/mcp/tools.ts`: the 31 tools · `src/mcp/apps.ts`: MCP Apps cards
 - `src/market/tape.ts`: the overnight tape · `src/market/alerts.ts`: alerts that fire with timestamps
 - `src/auth/`: OAuth 2.1 server, signed tokens, wallet signature verification
 - `src/chain/`: Solana balances, trade proposals, Jupiter swap client

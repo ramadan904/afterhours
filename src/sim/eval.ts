@@ -8,6 +8,7 @@
  */
 
 import { resolveSymbol } from "../market/universe.js";
+import { resolveSector } from "../market/sectors.js";
 import { parseTime } from "../notify/briefing.js";
 import { normalisePin } from "../auth/pin.js";
 
@@ -28,7 +29,7 @@ export interface EvalResult {
   why?: string;
 }
 
-const ticker = (v: unknown) => (typeof v === "string" ? (resolveSymbol(v)?.ticker ?? v.toUpperCase()) : v);
+const ticker = (v: unknown) => (typeof v === "string" ? (resolveSymbol(v)?.ticker ?? (resolveSector(v) ? `sector:${resolveSector(v)!.id}` : v.toUpperCase())) : v);
 const TIME_KEYS = new Set(["time", "from", "until"]);
 const PIN_KEYS = new Set(["pin", "new_pin", "current_pin"]);
 

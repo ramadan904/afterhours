@@ -7,6 +7,7 @@
 import type { Alert } from "../market/alerts.js";
 import { isPriceAlert } from "../market/alerts.js";
 import { listingByTicker } from "../market/universe.js";
+import { nameFor } from "../market/sectors.js";
 import { capitalise, clockTime, pct, usd } from "../market/speech.js";
 import type { Notice } from "./push.js";
 import type { TradeIntent } from "../chain/trade.js";
@@ -18,7 +19,7 @@ const short = (zone: Zone) => (zone.label === "Eastern" ? "ET" : `${zone.label} 
 const signed = (bps: number) => `${bps >= 0 ? "up" : "down"} ${pct(bps)}`;
 
 export function alertNotice(alert: Alert, baseUrl: string, zone: Zone = EASTERN): Notice {
-  const name = capitalise(listingByTicker(alert.ticker)?.spoken ?? alert.ticker);
+  const name = capitalise(nameFor(alert.ticker));
   const at = alert.firedAt ? `${clockTime(alert.firedAt, zone)} ${short(zone)}` : "just now";
   const url = `${baseUrl}/app/#${alert.ticker}`;
   if (isPriceAlert(alert)) {

@@ -21,6 +21,7 @@ import { readGap, type GapReading } from "./gap.js";
 import { getMarketSession, lastRegularClose } from "./session.js";
 import { SAMPLE_BOARD } from "./prices.js";
 import { evaluateAll } from "./alerts.js";
+import { sectorReadings } from "./sectors.js";
 import { notify } from "../notify/push.js";
 import { alertNotice, settledTradeNotice, triggeredTradeNotice } from "../notify/notices.js";
 import { settlePending } from "../chain/settle.js";
@@ -117,7 +118,8 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   const now = svc.now();
   const board = await svc.prices.read();
   const readings = readingsFrom(board, now);
-  const firedAlerts = await evaluateAll(svc.store, readings, now);
+  // Sector alerts ride along as readings of their own ("sector:chips").
+  const firedAlerts = await evaluateAll(svc.store, [...readings, ...sectorReadings(readings)], now);
   const fired = firedAlerts.length;
   count("TapeSamples");
   if (fired) count("AlertsFired", fired);

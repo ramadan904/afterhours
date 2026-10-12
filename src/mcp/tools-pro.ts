@@ -31,6 +31,8 @@ import { openKey, type OpenResult } from "../notify/open-verdict.js";
 import { recapSentence, setWeekly, weeklyOn, weekRecap } from "../notify/weekly.js";
 import { readActivity } from "../account/activity.js";
 import { deleteData } from "../account/data.js";
+import { SECTORS, resolveSector, sectorById, sectorReadings } from "../market/sectors.js";
+import { rankByGap, NOISE_FLOOR_BPS } from "../market/gap.js";
 import { whenSpoken } from "../market/speech.js";
 import { sampleOpens } from "../market/history.js";
 import { getMarketSession, toEasternParts } from "../market/session.js";
@@ -775,6 +777,55 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         return say(
           "Done. Everything Afterhours kept for you is deleted, and anything waiting was cancelled. Your wallet is untouched. To stop Alexa using Afterhours at all, unlink it in the Alexa app.",
           { deleted: true, records },
+        );
+      }),
+  );
+
+  server.registerTool(
+    "sector_moves",
+    {
+      title: "How a sector, or every sector, is moving",
+      description:
+        "How groups of tokenized stocks are moving against their shares (since the last close while the market is shut, against live prices when it's open): every sector ranked, or one sector's members. Sectors: tech (chips, software and cloud, internet and media), consumer, banks and payments, crypto stocks, healthcare, energy and industrials, index funds. Use for 'how's tech doing tonight?', 'what are chip stocks doing?', 'which sectors are moving?', 'how's pharma?'.",
+      inputSchema: { sector: z.string().optional().describe("A sector as said, e.g. 'tech', 'chips', 'banks', 'pharma'. Omit for all.") },
+      outputSchema: {
+        dataSource: z.enum(["jupiter", "sample"]),
+        sectors: z.array(z.object({ id: z.string(), name: z.string(), gapPercent: z.number(), members: z.number() })),
+        members: z.array(z.object({ ticker: z.string(), name: z.string(), gapPercent: z.number() })),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ sector }) =>
+      guard(async () => {
+        const { board, readings } = await kit.allReadings();
+        const note = board.source === "sample" ? "Using sample data. " : "";
+        const word = (bps: number) => `${bps >= 0 ? "up" : "down"} ${(Math.abs(bps) / 100).toFixed(1)} percent`;
+        const since = readings.find((r) => r.kind === "overnight_move" || r.kind === "in_line")?.referenceLabel;
+        const against = readings.some((r) => r.kind === "live_gap") ? "against live share prices" : since ? `since ${since}` : "";
+        if (!sector) {
+          const all = rankByGap(sectorReadings(readings, SECTORS));
+          const data = { dataSource: board.source, sectors: all.map((r) => ({ id: r.ticker.slice(7), name: r.spoken, gapPercent: r.gapBps! / 100, members: sectorById(r.ticker.slice(7))!.members.length })), members: [] };
+          if (!all.length) return fail("I don't have enough prices to compare sectors right now.");
+          const moving = all.filter((r) => Math.abs(r.gapBps!) >= NOISE_FLOOR_BPS);
+          if (!moving.length) return say(`${note}Every sector is within normal noise ${against}.`, data);
+          const top = moving.slice(0, 3).map((r) => `${r.spoken} ${word(r.gapBps!)}`);
+          const quiet = all.length - moving.length;
+          return say(`${note}On average ${against}: ${listJoin(top)}${quiet ? `; ${quiet === 1 ? "one sector is" : `${quiet} sectors are`} flat` : ""}.`, data);
+        }
+        const s = resolveSector(sector);
+        if (!s) return fail(`I don't know a sector called "${sector}". Try tech, chips, banks, crypto, healthcare, energy or consumer.`);
+        const mine = rankByGap(readings.filter((r) => s.members.includes(r.ticker) && r.gapBps !== null));
+        const avg = sectorReadings(readings, [s])[0];
+        if (!avg) return fail(`I don't have enough prices for ${s.spoken} right now.`);
+        const lead = mine.slice(0, 3).map((r) => `${r.spoken} ${word(r.gapBps!)}`);
+        const last = mine.at(-1)!;
+        return say(
+          `${note}${capitalise(s.spoken)} ${s.spoken.endsWith("s") ? "are" : "is"} ${word(avg.gapBps!)} on average ${against}. Biggest: ${listJoin(lead)}${mine.length > 3 ? `; ${last.spoken} moved least, ${word(last.gapBps!)}` : ""}.`,
+          {
+            dataSource: board.source,
+            sectors: [{ id: s.id, name: s.spoken, gapPercent: avg.gapBps! / 100, members: s.members.length }],
+            members: mine.map((r) => ({ ticker: r.ticker, name: r.spoken, gapPercent: r.gapBps! / 100 })),
+          },
         );
       }),
   );

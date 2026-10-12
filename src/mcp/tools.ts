@@ -43,6 +43,7 @@ import { getGuardrails, inWindow, nextLocal, recordSpend, spentToday } from "../
 import { zoneParts } from "../market/zones.js";
 import { impactAt } from "../chain/depth.js";
 import { readBetas, splitMove, type MoveSplit } from "../market/beta.js";
+import { SECTOR_PREFIX, nameFor, resolveSector, sectorReadings } from "../market/sectors.js";
 
 export interface Caller {
   sub: string;
@@ -468,7 +469,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const movers = rankByGap(readings)
           .filter((r) => r.kind === "overnight_move" || r.kind === "live_gap")
           .slice(0, count ?? 3);
-        const news = alertNews(await listAlerts(svc.store, caller.sub), readings, now);
+        const news = alertNews(await listAlerts(svc.store, caller.sub), [...readings, ...sectorReadings(readings)], now);
 
         // Alerts lead: they are the names this person said they care about.
         const zone = await getZone(svc.store, caller.sub);
@@ -702,6 +703,22 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
     async ({ stock, percent, price }) =>
       guard(async () => {
         const listing = resolveSymbol(stock);
+        const sector = listing ? null : resolveSector(stock);
+        if (sector) {
+          // A sector has a move (its members' average), not a price.
+          if (percent === undefined) return fail(`I can watch ${sector.spoken} for a percent move, like 2 percent, but not a price.`);
+          const thresholdBps = Math.max(NOISE_FLOOR_BPS, Math.round(percent * 100));
+          const ticker = `${SECTOR_PREFIX}${sector.id}`;
+          const list = await upsertAlert(svc.store, caller.sub, { ticker, thresholdBps, createdAt: svc.now() });
+          return say(`Done. I'll tell you when ${sector.spoken}, on average, move ${pct(thresholdBps)} or more from their share prices.`, {
+            ticker,
+            kind: "move",
+            thresholdPercent: thresholdBps / 100,
+            price: null,
+            direction: null,
+            alertCount: list.length,
+          });
+        }
         if (!listing) return unknownStock(stock);
         if ((percent === undefined) === (price === undefined)) {
           return fail(`Should I watch ${listing.spoken} for a percent move, or a price? For example, 2 percent, or above $400.`);
@@ -869,7 +886,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const alerts = await listAlerts(svc.store, caller.sub);
         const named = alerts.map((a) => ({
           ticker: a.ticker,
-          name: listingByTicker(a.ticker)?.spoken ?? a.ticker,
+          name: nameFor(a.ticker),
           kind: isPriceAlert(a) ? ("price" as const) : ("move" as const),
           thresholdPercent: isPriceAlert(a) ? null : a.thresholdBps / 100,
           price: a.price ?? null,
@@ -895,6 +912,12 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
     async ({ stock }) =>
       guard(async () => {
         const listing = resolveSymbol(stock);
+        const sector = listing ? null : resolveSector(stock);
+        if (sector) {
+          const ticker = `${SECTOR_PREFIX}${sector.id}`;
+          const removed = await removeAlert(svc.store, caller.sub, ticker);
+          return say(removed ? `Removed your ${sector.spoken} alert.` : `You didn't have an alert for ${sector.spoken}.`, { ticker, removed });
+        }
         if (!listing) return unknownStock(stock);
         const removed = await removeAlert(svc.store, caller.sub, listing.ticker);
         return say(removed ? `Removed your ${listing.spoken} alert.` : `You didn't have an alert for ${listing.spoken}.`, {

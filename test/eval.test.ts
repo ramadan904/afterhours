@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { score, summarise, type EvalCase } from "../src/sim/eval.js";
 import { LISTINGS } from "../src/market/universe.js";
+import { resolveSector } from "../src/market/sectors.js";
 
 describe("planner scoring", () => {
   it("compares arguments by meaning", () => {
@@ -25,7 +26,7 @@ describe("planner scoring", () => {
       expect(cases.length).toBeGreaterThan(30);
       for (const c of cases) {
         const stock = c.args?.stock;
-        if (typeof stock === "string") expect(LISTINGS.some((l) => l.ticker === stock), `${set}: ${c.say}`).toBe(true);
+        if (typeof stock === "string") expect(LISTINGS.some((l) => l.ticker === stock) || resolveSector(stock) !== null, `${set}: ${c.say}`).toBe(true);
       }
     }
   });
