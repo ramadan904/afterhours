@@ -111,8 +111,8 @@ export function authorizePage(p: {
   <p class="small muted">Afterhours reads its public balances. Any trade you propose still has to be signed by that address's own wallet.</p>
   <form method="post" action="/authorize" class="row">
     <input type="hidden" name="request" value="${esc(p.requestToken)}"><input type="hidden" name="mode" value="watch">
-    <label for="addr" class="small muted" style="width:100%">Solana address</label>
-    <input id="addr" name="address" required pattern="[1-9A-HJ-NP-Za-km-z]{32,44}" autocomplete="off" spellcheck="false" placeholder="e.g. 7xKX…">
+    <label for="addr" class="small muted" style="width:100%">Solana address or .sol name</label>
+    <input id="addr" name="address" required pattern="[1-9A-HJ-NP-Za-km-z]{32,44}|[A-Za-z0-9\\-]+(\\.[A-Za-z0-9\\-]+)*\\.sol" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Address, or a name like toly.sol">
     <button type="submit">Link watch-only</button>
   </form>
 </div>

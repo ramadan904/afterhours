@@ -24,6 +24,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { Services } from "../services.js";
 import { randomToken, sign, verify } from "./tokens.js";
 import { isAddress, linkMessage, verifyWalletSignature } from "./wallet.js";
+import { isSolName, resolveSolName } from "../chain/sns.js";
 import { authorizePage, errorPage } from "../http/pages.js";
 
 export const SCOPES = ["market", "portfolio", "trade"] as const;
@@ -229,7 +230,7 @@ export async function authorizePost(svc: Services, form: URLSearchParams): Promi
   let wallet: string | null;
   let verified: boolean;
   const mode = form.get("mode");
-  const address = form.get("address") ?? "";
+  let address = (form.get("address") ?? "").trim();
 
   if (mode === "wallet") {
     // Browsers submit form fields with CRLF line breaks; the wallet signed LF.
@@ -254,7 +255,12 @@ export async function authorizePost(svc: Services, form: URLSearchParams): Promi
     wallet = address;
     verified = true;
   } else if (mode === "watch") {
-    if (!isAddress(address)) return errorPage("That isn't a valid Solana address.", 400);
+    if (isSolName(address)) {
+      const resolved = await resolveSolName(address);
+      if (!resolved) return errorPage(`${address.toLowerCase()} doesn't resolve to a wallet. Check the name, or paste the address instead.`, 400);
+      address = resolved;
+    }
+    if (!isAddress(address)) return errorPage("That isn't a valid Solana address or .sol name.", 400);
     // Watch-only: balances are public, and a proposed trade can still only be
     // signed by this address's own wallet. Kept distinct from a verified link.
     // Each watch-only link is its own account: anyone can watch any address,

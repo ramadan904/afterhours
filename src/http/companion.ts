@@ -26,6 +26,7 @@ const CSS = `
 .rowbtn .sub{display:block;font-size:13px;color:var(--muted)}
 .chart{padding:4px 0 10px}
 .chart svg{width:100%;height:120px;display:block}
+.chart .listen{margin-top:6px}
 .chart .cap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;font-size:12px;color:var(--muted)}
 .alert{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
 .alert:first-child{border-top:0}
@@ -119,7 +120,21 @@ async function chart(ticker,host){host.innerHTML="<p class=empty>Loading the nig
   "<line x1='0' x2='"+W+"' y1='"+Y(0).toFixed(1)+"' y2='"+Y(0).toFixed(1)+"' stroke='currentColor' stroke-opacity='.35' stroke-dasharray='4 4' vector-effect='non-scaling-stroke'/>"+
   "<path d='"+path+"' fill='none' stroke='"+(last>=0?"var(--up)":"var(--down)")+"' stroke-width='2' vector-effect='non-scaling-stroke' stroke-linejoin='round'/>"+
   "<circle cx='"+X(xs[iHi]).toFixed(1)+"' cy='"+Y(ys[iHi]).toFixed(1)+"' r='3' fill='var(--accent)'/><circle cx='"+X(x1).toFixed(1)+"' cy='"+Y(last).toFixed(1)+"' r='3.5' fill='currentColor'/></svg>"+
-  "<div class=cap><span>since "+escH(et(t.since))+"</span><span>high "+pct(ys[iHi])+" · "+escH(et(pts[iHi].at))+"</span><span>now <b class="+cls(last)+">"+pct(last)+"</b></span></div>"}
+  "<div class=cap><span>since "+escH(et(t.since))+"</span><span>high "+pct(ys[iHi])+" · "+escH(et(pts[iHi].at))+"</span><span>now <b class="+cls(last)+">"+pct(last)+"</b></span></div>";
+ const play=document.createElement("button");play.className="small listen";play.textContent="▶ Listen to the night";play.setAttribute("aria-label","Listen to "+ticker+"x overnight as sound: pitch rises with the price");
+ play.onclick=()=>sonify(ys,lo,hi,play);host.appendChild(play)}
+
+/* ---------- the night, heard ----------
+   Pitch follows the gap (low = down, high = up) over three seconds; a soft click marks
+   each crossing of the last close. For listening when a chart can't be seen. */
+let audio=null;
+function sonify(ys,lo,hi,btn){const Ctx=window.AudioContext||window.webkitAudioContext;if(!Ctx){btn.textContent="Sound isn't available in this browser";return}
+ audio=audio||new Ctx();const t0=audio.currentTime+0.05,dur=3,step=dur/Math.max(1,ys.length-1),span=(hi-lo)||1;
+ const osc=audio.createOscillator(),gain=audio.createGain();osc.type="triangle";osc.connect(gain);gain.connect(audio.destination);
+ gain.gain.setValueAtTime(0,t0);gain.gain.linearRampToValueAtTime(0.18,t0+0.08);gain.gain.setValueAtTime(0.18,t0+dur-0.15);gain.gain.linearRampToValueAtTime(0,t0+dur);
+ ys.forEach((y,i)=>{const f=220*Math.pow(2,2*(y-lo)/span);osc.frequency[i?"linearRampToValueAtTime":"setValueAtTime"](f,t0+i*step);
+  if(i&&Math.sign(y)!==Math.sign(ys[i-1])){const c=audio.createOscillator(),g=audio.createGain();c.frequency.value=1760;g.gain.setValueAtTime(0.12,t0+i*step);g.gain.exponentialRampToValueAtTime(0.001,t0+i*step+0.05);c.connect(g);g.connect(audio.destination);c.start(t0+i*step);c.stop(t0+i*step+0.06)}});
+ osc.start(t0);osc.stop(t0+dur+0.05);btn.disabled=true;btn.textContent="Playing…";osc.onended=()=>{btn.disabled=false;btn.textContent="▶ Listen again"}}
 function rows(list,host){host.innerHTML="";if(!list.length){host.innerHTML="<p class=empty>Nothing to show.</p>";return}
  for(const r of list){const b=document.createElement("button");b.className="rowbtn";b.setAttribute("aria-expanded","false");b.dataset.ticker=r.ticker;
   b.innerHTML="<span>"+escH(r.title)+"<span class=sub>"+escH(r.sub)+"</span></span><span>"+escH(r.right)+"</span><b class="+cls(r.sign)+">"+escH(r.change)+"</b>";
