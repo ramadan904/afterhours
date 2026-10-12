@@ -192,7 +192,9 @@ describe("MCP Apps cards", () => {
     expect(uiOf("set_alert")).toBeUndefined();
 
     const resources = (await rpc("resources/list", {})).resources as { uri: string; mimeType: string }[];
-    expect(resources.map((r) => r.uri).sort()).toEqual(["ui://afterhours/brief", "ui://afterhours/portfolio", "ui://afterhours/stock", "ui://afterhours/trade"]);
+    expect(resources.map((r) => r.uri).sort()).toEqual(
+      ["brief", "depth", "open", "portfolio", "rebalance", "recap", "returns", "stock", "trade"].map((k) => `ui://afterhours/${k}`),
+    );
     expect(resources.every((r) => r.mimeType === "text/html;profile=mcp-app")).toBe(true);
 
     const read = (await rpc("resources/read", { uri: "ui://afterhours/trade" })).contents[0];

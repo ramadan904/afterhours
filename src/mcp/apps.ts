@@ -23,13 +23,18 @@ import { VERSION } from "../version.js";
 
 export const APP_MIME = "text/html;profile=mcp-app";
 
-export type CardKind = "brief" | "stock" | "portfolio" | "trade";
+export type CardKind = "brief" | "stock" | "portfolio" | "trade" | "depth" | "returns" | "rebalance" | "recap" | "open";
 
 export const CARD_URI: Record<CardKind, string> = {
   brief: "ui://afterhours/brief",
   stock: "ui://afterhours/stock",
   portfolio: "ui://afterhours/portfolio",
   trade: "ui://afterhours/trade",
+  depth: "ui://afterhours/depth",
+  returns: "ui://afterhours/returns",
+  rebalance: "ui://afterhours/rebalance",
+  recap: "ui://afterhours/recap",
+  open: "ui://afterhours/open",
 };
 
 /** Which card each tool shows. Tools not listed are voice-only. */
@@ -40,6 +45,11 @@ export const TOOL_CARD: Record<string, CardKind> = {
   propose_trade: "trade",
   trade_status: "trade",
   cancel_trade: "trade",
+  market_depth: "depth",
+  my_returns: "returns",
+  rebalance: "rebalance",
+  weekly_recap: "recap",
+  how_did_the_open_go: "open",
 };
 
 export function toolUiMeta(tool: string): Record<string, unknown> | undefined {
@@ -57,6 +67,7 @@ main{padding:16px 18px}
 .up{color:var(--up)}.down{color:var(--down)}.muted{color:var(--muted)}
 .row{display:grid;grid-template-columns:96px 1fr 70px;gap:10px;align-items:center;margin:7px 0;font-variant-numeric:tabular-nums}
 .track{height:9px;background:var(--track);border-radius:6px;position:relative;overflow:hidden}
+.track .tick{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);opacity:.8}
 .fill{position:absolute;top:0;bottom:0;border-radius:6px}.fill.up{background:var(--up)}.fill.down{background:var(--down)}
 .v{text-align:right}
 .range{position:relative;height:28px;margin:10px 0 2px}
@@ -97,7 +108,7 @@ const et=iso=>new Date(iso).toLocaleString("en-US",{weekday:"short",hour:"numeri
 function bars(rows){const max=Math.max(1,...rows.map(r=>Math.abs(r.v)));return rows.map(r=>"<div class=row><span>"+esc(r.k)+"</span><span class=track><span class='fill "+cls(r.v)+"' style='left:0;width:"+(Math.abs(r.v)/max*100).toFixed(1)+"%'></span></span><span class='v "+cls(r.v)+"'>"+esc(r.t)+"</span></div>").join("")}
 `;
 
-const RENDER: Record<CardKind, string> = {
+const RENDER: Partial<Record<CardKind, string>> = {
   brief: `function render(d){const a=(d.alertsTriggered||[]).map(x=>x.kind==="price"
   ?"<div class=alert><b>"+esc(x.ticker)+"x</b> price alert ("+usd(x.price)+") "+(x.firedAt?"crossed at "+et(x.firedAt)+" · ":"")+"now "+usd(x.tokenPrice)+"</div>"
   :"<div class=alert><b>"+esc(x.ticker)+"x</b> alert ("+x.thresholdPercent+"%) "+(x.firedAt?"went off at "+et(x.firedAt)+", "+pct(x.firedGapPercent)+" · now ":"")+"<span class="+cls(x.gapPercent)+">"+pct(x.gapPercent)+"</span></div>").join("");
@@ -113,6 +124,21 @@ function render(d){const live=d.status==="awaiting_signature";const u=new URL(d.
  const b=document.getElementById("open");if(b)b.onclick=()=>openLink(d.confirmUrl);
  const img=document.querySelector(".qr img");if(img)img.onload=resized}`,
 };
+
+Object.assign(RENDER, {
+  depth: `function render(d){const max=Math.max(1,...d.steps.map(s=>s.costPercent));
+ document.body.innerHTML="<main><div class=label>"+esc(d.side)+" "+esc(d.ticker)+"x · cost of size"+(d.dataSource==="sample"?" · sample data":"")+"</div><div class=big>"+usd(d.tokenPrice)+"</div>"+d.steps.map(s=>"<div class=row><span>"+usd(s.usd).replace(".00","")+"</span><span class=track><span class='fill "+(s.costPercent<1?"up":"down")+"' style='left:0;width:"+(s.costPercent/max*100).toFixed(1)+"%'></span></span><span class='v "+(s.costPercent<1?"up":"down")+"'>"+s.costPercent.toFixed(2)+"%</span></div>").join("")+"<div class=note>"+(d.under1PercentUsd?"Up to "+usd(d.under1PercentUsd).replace(".00","")+" fills within 1% of the price.":"Even small trades cost over 1% right now.")+(d.dataSource==="sample"?" Sample liquidity model.":" Quotes from Jupiter.")+"</div></main>"}`,
+  returns: `function render(d){const g=d.totalGainUsd;
+ document.body.innerHTML="<main><div class=label>On what you paid"+(d.dataSource==="sample"?" · sample data":"")+"</div><div class=big>"+usd(d.totalValueUsd)+"</div><div class="+cls(g)+" style='font-weight:650'>"+(g>=0?"+":"−")+usd(Math.abs(g))+" <span class=muted style='font-weight:400'>on "+usd(d.totalCostUsd)+" paid</span></div>"+bars(d.positions.filter(p=>p.gainPercent!=null).map(p=>({k:p.ticker+"x",v:p.gainPercent,t:pct(p.gainPercent)})))+"<div class=note>Average cost, from "+d.transactionsRead+" transactions in your wallet's history"+(d.complete?"":" (older history not read)")+".</div></main>"}`,
+  rebalance: `function render(d){
+ document.body.innerHTML="<main><div class=label>Your mix vs target</div>"+d.rows.map(r=>"<div class=row><span>"+esc(r.ticker)+"x</span><span class=track><span class='fill "+(Math.abs(r.percent-r.targetPercent)<2?"up":"down")+"' style='left:0;width:"+Math.min(100,r.percent).toFixed(1)+"%'></span><span class=tick style='left:"+r.targetPercent+"%'></span></span><span class=v>"+r.percent.toFixed(0)+"% / "+r.targetPercent.toFixed(0)+"%</span></div>").join("")+
+  (d.legs.length?"<div class=label style='margin-top:12px'>"+(d.prepared?"Ready to sign":"To rebalance")+"</div>"+d.legs.map(l=>"<div class=row><span>"+esc(l.side)+" "+esc(l.ticker)+"x</span><span></span><span class=v>"+usd(l.usd)+(l.code?" · "+esc(l.code):"")+"</span></div>").join(""):"<div class=note>Within 2% of target: nothing to trade.</div>")+"</main>"}`,
+  recap: `function render(d){const g=d.changeUsd;
+ document.body.innerHTML="<main><div class=label>Your week"+(d.dataSource==="sample"?" · sample data":"")+"</div>"+(g==null?"<p class=muted>Not a full week of prices yet.</p>":"<div class='big "+cls(g)+"'>"+(g>=0?"+":"−")+usd(Math.abs(g))+"</div><div class="+cls(g)+">"+pct(d.changePercent)+"</div>")+
+  (d.best?bars([d.best,d.worst].filter(Boolean).map(x=>({k:x.ticker+"x",v:x.percent,t:pct(x.percent)}))):"")+"<div class=note>"+(d.recurringRuns?"Recurring buys signed: "+d.recurringSigned+" of "+d.recurringRuns+". ":"")+(d.alertsFired?"Alerts fired: "+d.alertsFired+".":"")+"</div></main>"}`,
+  open: `function render(d){
+ document.body.innerHTML="<main><div class=label>The open, scored"+(d.date?" · "+esc(d.date):"")+(d.dataSource==="sample"?" · sample data":"")+"</div>"+d.results.map(r=>"<div class=row><span>"+esc(r.ticker)+"x</span><span class=muted>called "+pct(r.calledPercent)+"</span><span class='v "+cls(r.openPercent)+"'>opened "+pct(r.openPercent)+(r.held?" ✓":" ✗")+"</span></div>").join("")+"<div class=note>✓ the overnight move held at the open.</div></main>"}`,
+});
 
 export function cardHtml(kind: CardKind): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Afterhours</title><style>${CSS}</style></head><body><main class=muted>Loading…</main><script>${CLIENT}${RENDER[kind]}</script></body></html>`;

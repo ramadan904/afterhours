@@ -16,6 +16,7 @@ import type { Board } from "../market/prices.js";
 import type { MarketSession } from "../market/session.js";
 import type { TradeIntent } from "../chain/trade.js";
 import { fail, say, type Result } from "./result.js";
+import { toolUiMeta } from "./apps.js";
 import { COOLING_OFF_MS, DEFAULT_SLEEP, getGuardrails, setDailyLimit, setSleep, spentToday } from "../chain/guardrails.js";
 import { getZone, zoneName } from "../market/zones.js";
 import { capitalise, clockTime, usd } from "../market/speech.js";
@@ -300,6 +301,7 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
   server.registerTool(
     "my_returns",
     {
+      _meta: toolUiMeta("my_returns"),
       title: "What I paid and what I've made",
       description:
         "How much the user has made or lost on what they hold, against what they actually paid: reconstructed from their wallet's own Solana history (each buy and sale paired with the USDC that moved), at average cost. Use for 'how much have I made on Nvidia?', 'am I up overall?', 'what did I pay for my Tesla?'.",
@@ -411,6 +413,7 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
   server.registerTool(
     "market_depth",
     {
+      _meta: toolUiMeta("market_depth"),
       title: "How much size the token market can take",
       description:
         "Real quotes from Jupiter (the router that would fill a trade) at $100, $1,000 and $10,000, for buying or selling one tokenized stock right now: how much over (or under) the token's price each size would fill. On weekends and at night these markets are thinner than the stock exchange. Use for 'how deep is the Tesla market?', 'can I buy 10 thousand dollars of Nvidia without moving it?', 'how liquid is Palantir right now?'.",
@@ -547,6 +550,7 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
   server.registerTool(
     "rebalance",
     {
+      _meta: toolUiMeta("rebalance"),
       title: "Rebalance to my target mix",
       description:
         "Compares the user's holdings with their target mix and works out the sells and buys that bring it back, paid for by the sales (no new money). Without confirm, it only explains the drift and the trades it would propose. With confirm (after the user says yes), it prepares those trades for the user to sign in their wallet, sales first. Use for 'how far am I from my target?', 'rebalance my portfolio', 'yes, rebalance now'.",
@@ -617,6 +621,7 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
   server.registerTool(
     "how_did_the_open_go",
     {
+      _meta: toolUiMeta("how_did_the_open_go"),
       title: "Did the overnight move hold at the open?",
       description:
         "After the US market opens, compares how each share actually opened with the move its token had called overnight, for one stock or for the names the user holds and watches. Use for 'how did the open go?', 'did Tesla's weekend move hold?', 'was the token right this morning?'.",
@@ -679,6 +684,7 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
   server.registerTool(
     "weekly_recap",
     {
+      _meta: toolUiMeta("weekly_recap"),
       title: "How was my week?",
       description:
         "The user's week in tokenized stocks: how their holdings moved over seven days, which led and lagged, how many recurring buys they signed, and how many alerts went off. Can also turn on or off a recap pushed Sunday at 6 p.m. their time. Use for 'how was my week?', 'weekly recap', 'send me a recap every Sunday', 'stop the weekly recap'.",
