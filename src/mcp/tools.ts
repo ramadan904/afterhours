@@ -118,7 +118,7 @@ const readingShape = {
   tokenPrice: z.number(),
   sharePrice: z.number().nullable(),
   gapPercent: z.number().nullable(),
-  kind: z.enum(["in_line", "overnight_move", "live_gap", "stale_reference", "no_reference", "suspect_price"]),
+  kind: z.enum(["in_line", "overnight_move", "live_gap", "stale_reference", "no_reference", "thin_market", "suspect_price"]),
   comparedWith: z.string(),
   referenceAt: z.string().nullable(),
 };
@@ -996,6 +996,9 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const { board, now, readings } = await allReadings();
         const r = readings.find((x) => x.ticker === listing.ticker);
         if (!r) return fail(`I don't have a price for ${listing.spoken} right now, so I can't prepare that.`);
+        if (r.kind === "thin_market") {
+          return fail(`Hardly anyone is trading ${possessiveName(listing.spoken)} token on Solana right now, so a trade would fill at a bad price, if at all. Nothing was prepared.`);
+        }
         if (r.kind === "suspect_price") {
           return fail(`${capitalise(possessiveName(listing.spoken))} token price doesn't add up right now: ${usd(r.tokenPrice)} against a share price of ${usd(r.sharePrice!)}. I won't prepare a trade on a price that looks wrong. Try again later.`);
         }

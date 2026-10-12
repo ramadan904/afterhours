@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FRIDAY_CLOSE, SUNDAY, harness, linkWallet, mcp } from "./helpers.js";
-import { SamplePrices, type Board, type PriceSource } from "../src/market/prices.js";
+import { JupiterPrices, SamplePrices, type Board, type PriceSource } from "../src/market/prices.js";
 import { readGap } from "../src/market/gap.js";
 import { gapSentence } from "../src/market/speech.js";
 import { listingByTicker } from "../src/market/universe.js";
@@ -44,5 +44,28 @@ describe("a price that doesn't add up", () => {
     const trade = await session.call("propose_trade", { stock: "Super Micro", side: "buy", amount_usd: 25 });
     expect(trade).toMatchObject({ isError: true });
     expect(trade.text).toMatch(/^Super Micro's token price doesn't add up right now: .* I won't prepare a trade on a price that looks wrong\. Try again later\.$/);
+  });
+});
+
+describe("a token hardly anyone trades", () => {
+  it("reads Jupiter's liquidity and doesn't treat a dead pool's last swap as a price", async () => {
+    const tsla = listingByTicker("TSLA")!;
+    const smci = listingByTicker("SMCI")!;
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({
+          [tsla.mint]: { usdPrice: 370, liquidity: 2_400_000, stockData: { price: 362.8, updatedAt: "2026-10-09T20:00:00Z" } },
+          // Straight from CI's live audit.
+          [smci.mint]: { usdPrice: 7344.62024794069, liquidity: 2.8943361553295013, stockData: { price: 41.28, updatedAt: "2026-10-12T11:46:18.292Z" } },
+        }),
+      )) as unknown as typeof fetch;
+    const board = await new JupiterPrices({ endpoint: "http://jup.test", fetchImpl }).read();
+    expect(board.quotes.get("SMCI")?.liquidityUsd).toBeCloseTo(2.894, 3);
+    expect(readGap(tsla, board.quotes.get("TSLA")!, SUNDAY).kind).toBe("overnight_move");
+    const r = readGap(smci, board.quotes.get("SMCI")!, SUNDAY);
+    expect(r).toMatchObject({ kind: "thin_market", gapBps: null });
+    expect(gapSentence(r)).toBe("Hardly anyone is trading Super Micro's token on Solana right now, so its last price of $7,345, against $41.28 for the share, isn't a real read on the stock. I'd leave it alone until there's a market.");
+    // Even a believable price is thin if the pool is.
+    expect(readGap(tsla, { ticker: "TSLA", tokenPrice: 370, sharePrice: 362.8, shareUpdatedAt: FRIDAY_CLOSE, liquidityUsd: 900 }, SUNDAY).kind).toBe("thin_market");
   });
 });

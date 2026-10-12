@@ -28,6 +28,12 @@ export interface PairQuote {
   sharePrice: number | null;
   /** Unix ms of the share print; null when unknown. */
   shareUpdatedAt: number | null;
+  /**
+   * USD of on-chain liquidity behind the token price, as Jupiter reports it;
+   * absent when the source doesn't say. A few dollars means the "price" is
+   * the last stray swap in a dead pool.
+   */
+  liquidityUsd?: number | null;
 }
 
 export interface Board {
@@ -109,6 +115,7 @@ export class JupiterPrices implements PriceSource {
         // would report every gap as exactly zero.
         sharePrice: num(stock?.price),
         shareUpdatedAt: Number.isFinite(updated) ? updated : null,
+        liquidityUsd: typeof row?.liquidity === "number" && Number.isFinite(row.liquidity) ? row.liquidity : null,
       });
     }
     if (quotes.size === 0) throw new PriceSourceError("Jupiter prices: no listings priced");

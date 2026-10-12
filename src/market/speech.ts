@@ -100,6 +100,8 @@ export function gapSentence(r: GapReading): string {
       return `${who} is ${at}, but the share price has stopped updating, so I can't give you a reliable gap right now.`;
     case "no_reference":
       return `${who} is ${at}. I don't have a share price to compare it with.`;
+    case "thin_market":
+      return `Hardly anyone is trading ${possessive(r.spoken)} token on Solana right now, so its last price${r.sharePrice ? ` of ${usd(r.tokenPrice)}, against ${usd(r.sharePrice)} for the share,` : ""} isn't a real read on the stock. I'd leave it alone until there's a market.`;
     case "suspect_price":
       return `${who} is showing ${usd(r.tokenPrice)} against a share price of ${usd(r.sharePrice!)}, which is too far apart to be a real move. One of those prices is wrong, most likely because hardly anyone is trading the token, so I wouldn't rely on it or trade on it right now.`;
   }

@@ -31,6 +31,13 @@ export const NOISE_FLOOR_BPS = 20;
  */
 export const SUSPECT_RATIO = 1.5;
 
+/**
+ * Below this much on-chain liquidity, a token's price is the last stray swap,
+ * not a market. CI's live audit found the outliers at $3 to $813 (Super Micro
+ * at 178x its share); names people actually trade sit far above.
+ */
+export const MIN_LIQUIDITY_USD = Number(process.env.MIN_TOKEN_LIQUIDITY_USD ?? 10_000);
+
 /** During the regular session, a share print older than this is a stalled feed. */
 export const STALE_SHARE_MS = 5 * 60_000;
 
@@ -45,6 +52,8 @@ export type GapKind =
   | "stale_reference"
   /** No share price at all. */
   | "no_reference"
+  /** Too little liquidity behind the token for its price to mean anything. */
+  | "thin_market"
   /**
    * The two legs disagree by more than any real overnight move: one of them
    * is wrong (a thinly traded token's last swap, or a bad share print). Never
@@ -112,6 +121,9 @@ export function readGap(
   const direction: GapReading["direction"] =
     bps === null || Math.abs(bps) < NOISE_FLOOR_BPS ? "flat" : bps > 0 ? "rich" : "cheap";
 
+  if (quote.liquidityUsd != null && quote.liquidityUsd < MIN_LIQUIDITY_USD) {
+    return { ...base, gapBps: null, kind: "thin_market", direction: "flat", referenceLabel: "a token hardly anyone is trading" };
+  }
   if (bps === null) {
     return { ...base, kind: "no_reference", direction: "flat", referenceLabel: "no share price" };
   }
