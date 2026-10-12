@@ -169,6 +169,21 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "cancel_trade", args: code ? { code } : {} };
   }
+  if (/\b(stop|cancel|end)\b.*\b(recurring|weekly|daily|monthly)\b/.test(t)) {
+    const named = resolveSymbol(t.replace(/\b(stop|cancel|end|my|recurring|weekly|daily|monthly|buys?|plan)\b/g, " "));
+    return { tool: "stop_recurring_buy", args: named ? { stock: named.ticker } : {} };
+  }
+  if (/\b(recurring|regular) buys?\b/.test(t) && /\b(what|which|my|how)\b/.test(t) && !/\b(buy|invest)\s+\$?\d/.test(t)) return { tool: "my_recurring_buys", args: {} };
+  const every = /\b(every|each)\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b|\b(daily|weekly|monthly)\b|\bon the (\d{1,2})(?:st|nd|rd|th)\b/.exec(t);
+  if (/\b(buy|invest|purchase)\b/.test(t) && every) {
+    const word = (every[2] ?? every[3] ?? "").replace(/s$/, "");
+    const cadence = every[4] || word === "month" || word === "monthly" ? "monthly" : word === "day" || word === "daily" ? "daily" : "weekly";
+    const day = every[4] ?? (cadence === "weekly" && word !== "week" && word !== "weekly" ? word : undefined);
+    const time = /\bat\s+(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?)/.exec(t)?.[1]?.trim();
+    const head = t.slice(0, every.index);
+    const stock = head.replace(/^.*?\b(buy|invest|purchase)\b/, "").replace(/\$?\d+(\.\d+)?|dollars?|bucks|usd|worth|\b(of|me|some|in|into)\b/g, " ").trim();
+    return { tool: "recurring_buy", args: { stock: stock ? stockIn(stock) : "unknown", amount_usd: amount(head) ?? 0, cadence, ...(day ? { day } : {}), ...(time ? { time } : {}) } };
+  }
   if (/\b(buy|purchase|sell)\b/.test(t)) {
     // "... if it drops below 360" / "when it hits $400": a conditional trade.
     const cond = /\b(?:if|when|once)\b(.*?)\b(?:below|under|above|over|hits?|reach(?:es)?|to)\s+\$?(\d+(?:\.\d+)?)/.exec(t);

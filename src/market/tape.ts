@@ -25,6 +25,7 @@ import { notify } from "../notify/push.js";
 import { alertNotice, settledTradeNotice, triggeredTradeNotice } from "../notify/notices.js";
 import { settlePending } from "../chain/settle.js";
 import { sendDueBriefings } from "../notify/briefing.js";
+import { runDuePlans } from "../chain/recurring.js";
 import { triggerArmed } from "../chain/trade.js";
 import { getZone } from "./zones.js";
 import { refreshOpenHistoryIfStale } from "./history.js";
@@ -129,6 +130,8 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
 
   // Briefings people asked to have sent at a time of day.
   await sendDueBriefings(svc).catch(() => 0);
+  // Recurring buys whose time has come become proposals on the phone.
+  await runDuePlans(svc, prices).catch(() => []);
 
   // Once a day, rebuild the open track record from public history (background).
   void refreshOpenHistoryIfStale(svc).catch(() => false);

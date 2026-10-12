@@ -20,6 +20,9 @@ import { COOLING_OFF_MS, DEFAULT_SLEEP, getGuardrails, setDailyLimit, setSleep, 
 import { getZone, zoneName } from "../market/zones.js";
 import { clockTime, usd } from "../market/speech.js";
 import { parseTime, spokenTime } from "../notify/briefing.js";
+import { addPlan, cadencePhrase, listPlans, MAX_PLANS, parseWeekday, planRecord, removePlans, type Cadence } from "../chain/recurring.js";
+import { listingByTicker, resolveSymbol } from "../market/universe.js";
+import { listSubscriptions } from "../notify/push.js";
 
 export interface ToolKit {
   guard: (fn: () => Promise<Result>) => Promise<Result>;
@@ -146,6 +149,113 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
           `Sleep mode is on. Between ${spokenTime(start)} and ${spokenTime(end)} ${zoneName(zone)}, I'll set trades aside until morning instead of preparing them, and send them to your phone when you're up.`,
           data(sleep),
         );
+      }),
+  );
+
+  const planOut = z.object({
+    ticker: z.string(),
+    usd: z.number(),
+    cadence: z.enum(["daily", "weekly", "monthly"]),
+    schedule: z.string(),
+    runs: z.number(),
+    signed: z.number(),
+    skipped: z.number(),
+  });
+
+  server.registerTool(
+    "recurring_buy",
+    {
+      title: "Set up a recurring buy",
+      description:
+        "Sets up a recurring buy (dollar-cost averaging) without custody: at each run Afterhours prepares a proposal at the current price and sends it to the user's phone, and it only happens if they sign it in their wallet. Use for 'buy 25 dollars of the S&P every Monday', 'buy 10 dollars of Nvidia every day at 9', 'invest 100 dollars in Apple on the 1st of every month'.",
+      inputSchema: {
+        stock: z.string().min(1).describe("Company name or ticker as said."),
+        amount_usd: z.number().positive(),
+        cadence: z.enum(["daily", "weekly", "monthly"]).describe("How often."),
+        day: z.string().optional().describe("Weekly: the weekday ('Monday'). Monthly: day of the month ('1', '15'). Default Monday or the 1st."),
+        time: z.string().optional().describe("Time of day as said, e.g. '9', '8:30 am'. Default 9 a.m."),
+      },
+      outputSchema: { plan: planOut, plans: z.number(), max: z.number(), devices: z.number() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ stock, amount_usd, cadence, day, time }) =>
+      guard(async () => {
+        const listing = resolveSymbol(stock);
+        if (!listing) return fail(`I don't have a tokenized stock for "${stock}".`);
+        if (!caller.wallet) return fail("No wallet is linked yet. Link Afterhours in the Alexa app before setting up buys.");
+        if (amount_usd < 1) return fail("The smallest recurring buy is $1.");
+        const minutes = time ? parseTime(time) : 9 * 60;
+        if (minutes === null) return fail(`I didn't catch a time in "${time}". Try something like 9 a.m.`);
+        let weekday: number | undefined;
+        let dayOfMonth: number | undefined;
+        if (cadence === "weekly") {
+          weekday = day ? (parseWeekday(day) ?? undefined) : 1;
+          if (weekday === undefined) return fail(`Which day of the week? I didn't catch "${day}".`);
+        }
+        if (cadence === "monthly") {
+          dayOfMonth = day ? Number(/\d{1,2}/.exec(day)?.[0]) : 1;
+          if (!dayOfMonth || dayOfMonth < 1 || dayOfMonth > 31) return fail(`Which day of the month? I didn't catch "${day}".`);
+        }
+        const plan = await addPlan(svc, caller.sub, { ticker: listing.ticker, usd: amount_usd, cadence: cadence as Cadence, weekday, dayOfMonth, minutes, wallet: caller.wallet });
+        const zone = await getZone(svc.store, caller.sub);
+        const devices = (await listSubscriptions(svc, caller.sub)).length;
+        const plans = (await listPlans(svc, caller.sub)).length;
+        return say(
+          `Done. ${cadencePhrase(plan, spokenTime).replace(/^./, (c) => c.toUpperCase())} ${zoneName(zone)}, I'll prepare a ${usd(amount_usd)} buy of ${listing.spoken} and send it to your phone to sign. ${devices ? "" : "Turn on notifications in the Afterhours app so you get them. "}Nothing is bought unless you sign it.`,
+          { plan: { ticker: plan.ticker, usd: plan.usd, cadence: plan.cadence, schedule: cadencePhrase(plan, spokenTime), runs: 0, signed: 0, skipped: 0 }, plans, max: MAX_PLANS, devices },
+        );
+      }),
+  );
+
+  server.registerTool(
+    "my_recurring_buys",
+    {
+      title: "My recurring buys",
+      description: "Lists the user's recurring buys and how consistently they've signed them. Use for 'what recurring buys do I have?', 'how's my S&P plan going?'.",
+      inputSchema: {},
+      outputSchema: { plans: z.array(planOut), max: z.number() },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async () =>
+      guard(async () => {
+        const plans = await listPlans(svc, caller.sub);
+        if (!plans.length) return say("You don't have any recurring buys. You can say, buy 25 dollars of the S&P every Monday.", { plans: [], max: MAX_PLANS });
+        const zone = await getZone(svc.store, caller.sub);
+        const rows = await Promise.all(
+          plans.map(async (p) => ({ p, rec: await planRecord(svc, p), name: listingByTicker(p.ticker)?.spoken ?? p.ticker })),
+        );
+        const sentences = rows.map(({ p, rec, name }) => {
+          const record = rec.runs === 0 ? "it hasn't run yet" : `you've signed ${rec.signed} of ${rec.runs - rec.skipped} so far${rec.skipped ? `, and ${rec.skipped} ${rec.skipped === 1 ? "was" : "were"} skipped` : ""}`;
+          return `${usd(p.usd)} of ${name} ${cadencePhrase(p, spokenTime)}: ${record}`;
+        });
+        return say(`You have ${plans.length === 1 ? "one recurring buy" : `${plans.length} recurring buys`}, times in ${zoneName(zone)}. ${sentences.join(". ")}.`, {
+          plans: rows.map(({ p, rec }) => ({ ticker: p.ticker, usd: p.usd, cadence: p.cadence, schedule: cadencePhrase(p, spokenTime), ...rec })),
+          max: MAX_PLANS,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "stop_recurring_buy",
+    {
+      title: "Stop a recurring buy",
+      description: "Stops the user's recurring buy of one stock, or all of them when no stock is given. Use for 'stop my weekly S&P buy', 'cancel my recurring buys'.",
+      inputSchema: { stock: z.string().optional().describe("Which stock's plan to stop; omit to stop all.") },
+      outputSchema: { stopped: z.array(z.string()), remaining: z.number() },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ stock }) =>
+      guard(async () => {
+        const listing = stock ? resolveSymbol(stock) : null;
+        if (stock && !listing) return fail(`I don't have a tokenized stock for "${stock}".`);
+        const removed = await removePlans(svc, caller.sub, listing?.ticker);
+        const remaining = (await listPlans(svc, caller.sub)).length;
+        if (!removed.length) return say(listing ? `You don't have a recurring buy of ${listing.spoken}.` : "You don't have any recurring buys.", { stopped: [], remaining });
+        const names = [...new Set(removed.map((p) => listingByTicker(p.ticker)?.spoken ?? p.ticker))];
+        return say(`Stopped your recurring ${names.join(" and ")} ${removed.length === 1 ? "buy" : "buys"}. Anything already sent to your phone can still be signed until it expires.`, {
+          stopped: removed.map((p) => p.ticker),
+          remaining,
+        });
       }),
   );
 }

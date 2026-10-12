@@ -67,6 +67,8 @@ export interface TradeIntent {
    * the night with sleep mode on unlocks in the morning ("sleep on it").
    */
   hold?: { until: number; reason: "sleep" };
+  /** Set when a recurring plan prepared this proposal. */
+  planId?: string;
 }
 
 export const INTENT_TTL_SECONDS = 15 * 60;
@@ -104,15 +106,16 @@ export async function createIntent(
   store: Store,
   input: Omit<TradeIntent, "id" | "code" | "createdAt" | "expiresAt" | "status">,
   now = Date.now(),
+  ttlSeconds = INTENT_TTL_SECONDS,
 ): Promise<TradeIntent> {
   const id = randomBytes(16).toString("base64url");
-  const code = await allocateCode(store, id, INTENT_TTL_SECONDS);
+  const code = await allocateCode(store, id, ttlSeconds);
   const intent: TradeIntent = {
     ...input,
     id,
     code,
     createdAt: now,
-    expiresAt: now + INTENT_TTL_SECONDS * 1000,
+    expiresAt: now + ttlSeconds * 1000,
     status: "awaiting_signature",
   };
   await store.set(`intent:${id}`, intent, retention(intent, now));

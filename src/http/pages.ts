@@ -196,7 +196,9 @@ function show(i){current=i;$("intent").hidden=false;$("title").textContent=(i.si
  $("status").textContent=STATUS[i.status]||i.status;
  $("facts").innerHTML="<dt>Wallet</dt><dd class=mono>"+short(i.wallet)+"</dd><dt>Price when asked</dt><dd>"+money(i.priceAtProposal)+"</dd><dt>Pays with</dt><dd>"+(i.side==="buy"?"USDC":i.token)+"</dd><dt>Expires</dt><dd>"+new Date(i.expiresAt).toLocaleTimeString()+"</dd>"+(i.signature?"<dt>Transaction</dt><dd><a href='https://solscan.io/tx/"+i.signature+"' target=_blank rel=noopener>"+short(i.signature)+"</a></dd>":"");
  const a=$("actions");a.innerHTML="";
- if(i.status==="awaiting_signature"){const found=wallets();if(!found.length){$("msg").textContent="Open this page in a Solana wallet's browser (Phantom, Solflare or Backpack) to sign."}
+ if(i.status==="awaiting_signature"){const found=wallets();if(!found.length){$("msg").textContent="No wallet in this browser. Open this trade in your wallet's app to sign, or scan the code below with it.";
+   const here=encodeURIComponent(location.origin+"/go/"+i.code),ref=encodeURIComponent(location.origin);
+   for(const [name,href] of [["Phantom","https://phantom.app/ul/browse/"+here+"?ref="+ref],["Solflare","https://solflare.com/ul/v1/browse/"+here+"?ref="+ref]]){const l=document.createElement("a");l.className="btn primary";l.href=href;l.textContent="Open in "+name;a.appendChild(l)}}
   for(const [name,w] of found){const b=document.createElement("button");b.className="primary";b.textContent="Review & sign with "+name;b.onclick=()=>sign(w,b);a.appendChild(b)}
   const c=document.createElement("button");c.textContent="Cancel";c.onclick=cancel;a.appendChild(c)}
  if(i.status==="failed")$("msg").textContent=i.error?"Not confirmed: "+i.error+".":"The swap failed. Nothing was filled.";
