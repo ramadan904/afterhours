@@ -36,7 +36,7 @@ describe("times as said", () => {
   it.each(["25:00", "13 pm", "seven", "", "7:75"])("rejects %s", (said) => expect(parseTime(said)).toBeNull());
 
   it("says times back the way people say them", () => {
-    expect([420, 450, 720, 1140, 0].map(spokenTime)).toEqual(["7 a.m.", "7:30 a.m.", "noon", "7 p.m.", "12 a.m."]);
+    expect([420, 450, 720, 1140, 0].map(spokenTime)).toEqual(["7 a.m.", "7:30 a.m.", "noon", "7 p.m.", "midnight"]);
   });
 });
 

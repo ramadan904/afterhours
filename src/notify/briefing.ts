@@ -57,6 +57,7 @@ export function parseTime(said: string): number | null {
 /** "7 a.m.", "7:30 p.m.", "noon". */
 export function spokenTime(minutes: number): string {
   if (minutes === 12 * 60) return "noon";
+  if (minutes === 0) return "midnight";
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return `${h % 12 || 12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "a.m." : "p.m."}`;

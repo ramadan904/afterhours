@@ -62,6 +62,11 @@ export interface TradeIntent {
    */
   builtBlockhashes?: string[];
   builtAt?: number;
+  /**
+   * Held until a time rather than a price: a trade asked for in the middle of
+   * the night with sleep mode on unlocks in the morning ("sleep on it").
+   */
+  hold?: { until: number; reason: "sleep" };
 }
 
 export const INTENT_TTL_SECONDS = 15 * 60;
@@ -115,24 +120,27 @@ export async function createIntent(
   return intent;
 }
 
-/** Arms a conditional trade. It has no code until it triggers. */
+/**
+ * Arms a trade that waits: for a price (`condition`), or until a time
+ * (`hold`). It has no code until it triggers.
+ */
 export async function armIntent(
   store: Store,
-  input: Omit<TradeIntent, "id" | "code" | "createdAt" | "expiresAt" | "status" | "condition">,
-  condition: { price: number; above: boolean },
+  input: Omit<TradeIntent, "id" | "code" | "createdAt" | "expiresAt" | "status" | "condition" | "hold">,
+  trigger: { price: number; above: boolean } | { hold: NonNullable<TradeIntent["hold"]> },
   now = Date.now(),
 ): Promise<TradeIntent> {
   const index = (await store.get<string[]>(ARMED_INDEX)) ?? [];
   const mine = (await Promise.all(index.map((id) => getIntent(store, id, now)))).filter((i) => i?.sub === input.sub && i.status === "armed");
-  if (mine.length >= MAX_ARMED) throw new Error(`You can keep up to ${MAX_ARMED} conditional trades waiting. Cancel one first.`);
+  if (mine.length >= MAX_ARMED) throw new Error(`You can keep up to ${MAX_ARMED} waiting trades. Cancel one first.`);
   const intent: TradeIntent = {
     ...input,
     id: randomBytes(16).toString("base64url"),
     code: "",
     createdAt: now,
-    expiresAt: now + ARMED_TTL_SECONDS * 1000,
+    expiresAt: "hold" in trigger ? trigger.hold.until + TRIGGERED_TTL_SECONDS * 1000 : now + ARMED_TTL_SECONDS * 1000,
     status: "armed",
-    condition,
+    ...("hold" in trigger ? { hold: trigger.hold } : { condition: trigger }),
   };
   await store.set(`intent:${intent.id}`, intent, retention(intent, now));
   await store.set(`latest-intent:${input.sub}`, intent.id, retention(intent, now));
@@ -152,12 +160,14 @@ export async function triggerArmed(store: Store, prices: Map<string, number>, no
   const keep: string[] = [];
   for (const id of index) {
     const intent = await getIntent(store, id, now);
-    if (!intent || intent.status !== "armed" || !intent.condition) {
+    if (!intent || intent.status !== "armed" || (!intent.condition && !intent.hold)) {
       if (intent?.status === "expired") await saveIntent(store, intent, now);
       continue;
     }
     const price = prices.get(intent.ticker);
-    const crossed = price !== undefined && (intent.condition.above ? price >= intent.condition.price : price <= intent.condition.price);
+    const crossed = intent.condition
+      ? price !== undefined && (intent.condition.above ? price >= intent.condition.price : price <= intent.condition.price)
+      : now >= intent.hold!.until;
     if (!crossed) {
       keep.push(id);
       continue;
@@ -165,8 +175,8 @@ export async function triggerArmed(store: Store, prices: Map<string, number>, no
     intent.code = await allocateCode(store, id, TRIGGERED_TTL_SECONDS);
     intent.status = "awaiting_signature";
     intent.expiresAt = now + TRIGGERED_TTL_SECONDS * 1000;
-    intent.priceAtProposal = price!;
-    intent.condition = { ...intent.condition, triggeredAt: now, triggerPrice: price };
+    if (price !== undefined) intent.priceAtProposal = price;
+    if (intent.condition) intent.condition = { ...intent.condition, triggeredAt: now, triggerPrice: price };
     await saveIntent(store, intent, now);
     const recent = (await store.get<string[]>(`triggered:${intent.sub}`)) ?? [];
     await store.set(`triggered:${intent.sub}`, [...recent, id].slice(-5), 2 * 86_400);

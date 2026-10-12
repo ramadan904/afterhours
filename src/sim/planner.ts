@@ -135,6 +135,18 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "trade_status", args: code ? { code } : {} };
   }
+  if (/\b(spending|daily) limit\b|\bspend more than\b|\blimit me\b/.test(t)) {
+    if (/\b(remove|drop|get rid of|no)\b.*\blimit\b/.test(t)) return { tool: "set_spending_limit", args: { remove: true } };
+    const usd = amount(t);
+    return { tool: "set_spending_limit", args: usd ? { daily_usd: usd } : {} };
+  }
+  if (/\bsleep mode\b|\b(trade|trading|buy|buying) at night\b/.test(t)) {
+    if (/\b(off|disable|stop)\b/.test(t)) return { tool: "set_sleep_mode", args: { on: false } };
+    if (/\bis\b.*\bon\b|\?$/.test(t) && !/\b(turn|set|don'?t)\b/.test(t)) return { tool: "set_sleep_mode", args: {} };
+    const from = /\bfrom\s+(midnight|\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?)/.exec(t)?.[1];
+    const until = /\b(?:to|until|till)\s+(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?)/.exec(t)?.[1];
+    return { tool: "set_sleep_mode", args: { on: true, ...(from ? { from: from.trim() } : {}), ...(until ? { until: until.trim() } : {}) } };
+  }
   if (/\bbrief(ing)?\b/.test(t) && /\b(stop|cancel|turn off|no more)\b/.test(t)) return { tool: "schedule_briefing", args: { off: true } };
   if (/\bbrief(ing)?\b/.test(t) && /\bwhen\b.*\b(is|do i get|does)\b/.test(t)) return { tool: "schedule_briefing", args: {} };
   const timed = /\b(?:at|@)\s+(noon|\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|in the morning|in the evening)?)/.exec(t);

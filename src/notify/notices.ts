@@ -40,6 +40,14 @@ export function alertNotice(alert: Alert, baseUrl: string, zone: Zone = EASTERN)
 
 export function triggeredTradeNotice(intent: TradeIntent, baseUrl: string, zone: Zone = EASTERN): Notice {
   const name = capitalise(listingByTicker(intent.ticker)?.spoken ?? intent.ticker);
+  if (intent.hold) {
+    return {
+      title: `Slept on it? Your ${name} ${intent.side} is ready`,
+      body: `You asked for ${usd(intent.usd)} at ${clockTime(intent.createdAt, zone)} ${short(zone)}. It's ${usd(intent.priceAtProposal)} now. Sign with code ${intent.code} until ${clockTime(intent.expiresAt, zone)}, or let it lapse.`,
+      url: `${baseUrl}/go/${intent.code}`,
+      tag: `trade-${intent.id}`,
+    };
+  }
   const c = intent.condition!;
   return {
     title: `${name} ${c.above ? "rose above" : "dropped below"} ${usd(c.price)}`,

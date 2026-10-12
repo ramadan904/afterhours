@@ -27,13 +27,17 @@ import { MAX_WATCHED, editWatchlist, getWatchlist } from "../market/watchlist.js
 import { valuePortfolio } from "../market/portfolio.js";
 import { DAYS_SPOKEN, getBriefing, parseTime, setBriefing, spokenTime, type BriefingDays } from "../notify/briefing.js";
 import { listSubscriptions } from "../notify/push.js";
-import { aroundTime, capitalise, gapSentence, move, pct, sessionSentence, usd, verdictSentence, nextOpenPhrase, whenSpoken } from "../market/speech.js";
+import { aroundTime, capitalise, clockTime, gapSentence, move, pct, sessionSentence, usd, verdictSentence, nextOpenPhrase, whenSpoken } from "../market/speech.js";
 import { PriceSourceError, type Board } from "../market/prices.js";
 import { alertNews, isPriceAlert, listAlerts, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
 import { overnightRange, readTape, type OvernightRange } from "../market/tape.js";
 import { armIntent, createIntent, getIntent, intentByCode, maxTradeUsd, recentlyTriggered, saveIntent, type TradeIntent } from "../chain/trade.js";
 import { readOpens, sampleOpens, trackRecord, type OpenRecord } from "../market/history.js";
 import { EASTERN, getZone, resolveZone, setZone, zoneName, type Zone } from "../market/zones.js";
+import { fail, say, type Result } from "./result.js";
+import { registerProTools } from "./tools-pro.js";
+import { getGuardrails, inWindow, nextLocal, recordSpend, spentToday } from "../chain/guardrails.js";
+import { zoneParts } from "../market/zones.js";
 
 export interface Caller {
   sub: string;
@@ -45,19 +49,7 @@ export function callerFrom(authInfo: AuthInfo | undefined): Caller {
   return { sub: extra.sub ?? "local", wallet: extra.wallet ?? null };
 }
 
-type Result = {
-  content: { type: "text"; text: string }[];
-  structuredContent?: Record<string, unknown>;
-  isError?: boolean;
-};
 
-function say(text: string, data?: Record<string, unknown>): Result {
-  return data ? { content: [{ type: "text", text }], structuredContent: data } : { content: [{ type: "text", text }] };
-}
-
-function fail(text: string): Result {
-  return { content: [{ type: "text", text }], isError: true };
-}
 
 const KNOWN = `${LISTINGS.length} names, Tesla, Nvidia, Apple, Netflix, Palantir and the S&P 500 among them`;
 
@@ -230,7 +222,9 @@ function tradeSentence(intent: TradeIntent, now: number, zone: Zone = EASTERN): 
   const c = intent.condition;
   const line = c ? `${c.above ? "rises above" : "drops below"} ${usd(c.price)}` : "";
   const text: Record<TradeIntent["status"], string> = {
-    armed: `${what} is set for when its token ${line}.`,
+    armed: intent.hold
+      ? `${what} is set aside until ${clockTime(intent.hold.until, zone)} ${zoneName(zone)}, so you can sleep on it.`
+      : `${what} is set for when its token ${line}.`,
     awaiting_signature: c?.triggeredAt
       ? `${what} triggered ${whenSpoken(c.triggeredAt, now, zone)}, when the token ${c.above ? "rose above" : "dropped below"} ${usd(c.price)}. It's waiting for your signature: the code is ${spokenCode(intent.code)}.`
       : `${what} is waiting for your signature. The code is ${spokenCode(intent.code)}.`,
@@ -904,10 +898,37 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           }
         }
 
+        // The person's own rules, set while calm, come before what's asked at 2 a.m.
+        const zone = await getZone(svc.store, caller.sub);
+        const rules = await getGuardrails(svc.store, caller.sub, now);
+        if (side === "buy" && rules.dailyLimitUsd !== null) {
+          const spent = await spentToday(svc.store, caller.sub, zone, now);
+          if (spent + amount_usd > rules.dailyLimitUsd + 0.001) {
+            const left = rules.dailyLimitUsd - spent;
+            return fail(
+              `That's over the daily limit you set: ${usd(rules.dailyLimitUsd)} of buys a day, and ${usd(spent)} is already spoken for today. ${left >= 1 ? `You can still buy up to ${usd(left)} today.` : "It resets at midnight."}`,
+            );
+          }
+        }
+        const spend = async (id: string) => {
+          if (side === "buy") await recordSpend(svc.store, caller.sub, zone, now, id, amount_usd);
+        };
+
         const base = { sub: caller.sub, wallet: caller.wallet, ticker: listing.ticker, side, usd: amount_usd, priceAtProposal: r.tokenPrice };
+        if (rules.sleep && trigger_price === undefined && inWindow(zoneParts(new Date(now), zone.tz).minutes, rules.sleep)) {
+          const until = nextLocal(now, zone, rules.sleep.to);
+          const held = await armIntent(svc.store, base, { hold: { until, reason: "sleep" } }, now);
+          await spend(held.id);
+          const devices = (await listSubscriptions(svc, caller.sub)).length;
+          return say(
+            `${sampleNote(board)}It's ${clockTime(now, zone)} ${zoneName(zone)} and sleep mode is on, so I've set this ${usd(amount_usd)} ${side} of ${listing.spoken} aside instead of preparing it now. It'll be ready to sign at ${clockTime(until, zone)}${devices ? ", and I'll send it to your phone" : ""}, if you still want it. To drop it, say cancel my order.`,
+            intentOut(held, svc.baseUrl),
+          );
+        }
         if (trigger_price !== undefined && Math.abs(trigger_price / r.tokenPrice - 1) > 0.001) {
           const above = trigger_price > r.tokenPrice;
           const armed = await armIntent(svc.store, base, { price: trigger_price, above }, now);
+          await spend(armed.id);
           const devices = (await listSubscriptions(svc, caller.sub)).length;
           const tell = devices
             ? "I'll prepare it then and send a notification to your phone to sign it."
@@ -919,6 +940,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         }
 
         const intent = await createIntent(svc.store, base, now);
+        await spend(intent.id);
         const parts = [
           `${sampleNote(board)}A ${side} of ${usd(amount_usd)} of ${listing.spoken} at about ${usd(r.tokenPrice)} is ready for you to sign.`,
           `Open ${spokenUrl(svc.baseUrl, "/go")} and enter code ${spokenCode(intent.code)}. It expires in 15 minutes.`,
@@ -987,4 +1009,6 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         return say(tradeSentence(intent, svc.now()), intentOut(intent, svc.baseUrl));
       }),
   );
+
+  registerProTools(server, svc, caller, { guard, allReadings, intentOut, intentShape });
 }

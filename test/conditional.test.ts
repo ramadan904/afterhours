@@ -82,7 +82,7 @@ describe("conditional trades", () => {
     for (let i = 0; i < 5; i += 1) await session.call("propose_trade", { stock: "Tesla", side: "buy", amount_usd: 10, trigger_price: 300 + i });
     const sixth = await session.call("propose_trade", { stock: "Tesla", side: "buy", amount_usd: 10, trigger_price: 290 });
     expect(sixth.isError).toBe(true);
-    expect(sixth.text).toContain("up to 5 conditional trades");
+    expect(sixth.text).toContain("up to 5 waiting trades");
 
     h.svc.now = () => SUNDAY + 8 * 86_400_000;
     await tesla(250);
