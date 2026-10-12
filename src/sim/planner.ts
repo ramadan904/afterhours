@@ -135,6 +135,14 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "trade_status", args: code ? { code } : {} };
   }
+  if (/\b(how deep|liquid|liquidity|depth|without moving)\b/.test(t)) {
+    const named = resolveSymbol(t.replace(/\b(how deep|is|the|market|liquid|liquidity|depth|right now|without moving it)\b/g, " "));
+    return { tool: "market_depth", args: { stock: named ? named.aliases[0] : stockIn(t), ...(/\bsell/.test(t) ? { side: "sell" } : {}) } };
+  }
+  if (/\b(how much have i (made|lost)|what did i pay|am i up overall|my returns|cost basis|made on|lost on)\b/.test(t)) {
+    const named = resolveSymbol(t.replace(/\b(how much have i|made|lost|on|what did i pay|for|my|returns|cost basis)\b/g, " "));
+    return { tool: "my_returns", args: named ? { stock: named.aliases[0] } : {} };
+  }
   if (/\brebalanc/.test(t) || /\bhow far\b.*\btarget\b/.test(t)) {
     return { tool: "rebalance", args: /\b(now|go ahead|do it|yes)\b/.test(t) ? { confirm: true } : {} };
   }

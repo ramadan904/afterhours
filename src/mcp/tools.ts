@@ -75,7 +75,7 @@ export const EXPLAIN = {
   trading_safety:
     "I can prepare a trade, but I can never make one. I read you a six-digit code; you open the confirm page, check a fresh quote, and sign it in your own wallet. Afterhours holds no keys, so nothing moves without your signature.",
   what_you_can_do:
-    "Ask me what happened overnight, how a stock like Tesla is doing, or how your portfolio did since the close. I can watch a stock for a percent move or a price and tell you when it went off, and I can prepare a trade for you to sign in your wallet, now or when a price is reached. Tell me where you are, and I'll give you times in your own time zone.",
+    "Ask me what happened overnight, how a stock like Tesla is doing, whether that's the company or the whole market, and how deep its market is right now. I can tell you what your portfolio did since the close, and what you've made against what you actually paid, read from your wallet's history. I can watch stocks for you, send you a briefing at a time you pick, and prepare trades for you to sign in your wallet: now, when a price is reached, every week, or to rebalance to a mix you choose. And you can set guardrails for yourself: a daily spending limit, a PIN, and sleep mode for late-night trades.",
 } as const;
 
 /** The open history for a name: sample records with sample data, stored ones otherwise. */

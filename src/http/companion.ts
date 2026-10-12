@@ -67,6 +67,16 @@ ${p.sample ? `<p class="small muted">This server runs on sample data; you can si
 <label class="sr-only" for="aKind">Kind</label><select id="aKind"><option value="percent">moves %</option><option value="price">price $</option></select>
 <label class="sr-only" for="aValue">Value</label><input id="aValue" type="number" step="any" min="0" required placeholder="2">
 <button class="primary" type="submit">Add</button></form><p id="alertMsg" class="small" role="status"></p></section>
+<section class="sec" aria-labelledby="rTitle"><h2 id="rTitle">Recurring buys</h2><div id="plans"><p class="empty">Loading…</p></div>
+<form class="form" id="planForm"><label class="sr-only" for="rStock">Stock</label><select id="rStock"></select>
+<label class="sr-only" for="rUsd">Dollars</label><input id="rUsd" type="number" min="1" step="1" required placeholder="$25">
+<label class="sr-only" for="rCad">How often</label><select id="rCad"><option value="weekly">Weekly</option><option value="daily">Daily</option><option value="monthly">Monthly</option></select>
+<label class="sr-only" for="rDay">Day</label><select id="rDay"><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option></select>
+<label class="sr-only" for="rTime">Time</label><input id="rTime" type="time" value="09:00" required>
+<button class="primary" type="submit">Add</button></form><p id="planMsg" class="small" role="status"></p></section>
+<section class="sec" aria-labelledby="gTitle"><h2 id="gTitle">Guardrails</h2><p class="small muted" style="margin:0 0 8px">Rules for your late-night self. Lowering a limit is instant; raising it takes a day.</p>
+<form class="form" id="limitForm"><label class="small muted" for="gLimit" style="align-self:center">Daily buys up to $</label><input id="gLimit" type="number" min="1" step="1" placeholder="no limit"><button class="primary" type="submit">Set limit</button><button type="button" id="gNoLimit">Remove</button></form><p id="limitMsg" class="small muted" role="status"></p>
+<form class="form" id="sleepForm"><label class="small" style="align-self:center;display:flex;gap:6px;align-items:center"><input id="sOn" type="checkbox" style="width:auto"> Sleep mode from</label><label class="sr-only" for="sFrom">From</label><input id="sFrom" type="time" value="23:00"><label class="small muted" for="sTo" style="align-self:center">to</label><input id="sTo" type="time" value="07:00"><button class="primary" type="submit">Save</button></form><p id="sleepMsg" class="small muted" role="status"></p></section>
 <section class="sec" aria-labelledby="tTitle"><h2 id="tTitle">Latest trade</h2><div id="trade"><p class="empty">No trade yet. Say "buy 25 dollars of Apple" to Alexa.</p></div></section>
 <section class="sec" aria-labelledby="nTitle"><h2 id="nTitle">Notifications</h2><p id="pushText" class="muted" style="margin:0 0 10px">Get your alerts on this device the moment they go off, even at 2 a.m.</p>
 <div class="row"><button class="primary" id="pushOn" hidden>Turn on</button><button id="pushTest" hidden>Send a test</button><button id="pushOff" hidden>Turn off</button></div>
@@ -145,7 +155,7 @@ function rows(list,host){host.innerHTML="";if(!list.length){host.innerHTML="<p c
 async function loadPortfolio(){const r=await tool("my_portfolio");const host=$("portfolio");
  if(r.error||!r.data){host.innerHTML="<p class=empty>"+escH(r.text)+"</p>";return}
  const d=r.data;if(!d.positions.length){host.innerHTML="<p class=empty>"+escH(r.text)+"</p>";return}
- host.innerHTML="<div class=total>"+usd(d.totalUsd)+"</div><div class="+cls(d.changeUsd)+" style='margin-bottom:8px'>"+(d.changeUsd>=0?"+":"−")+usd(Math.abs(d.changeUsd))+" <span class=muted>since the close</span></div><div id=prows></div>";
+ host.innerHTML="<div class=total>"+usd(d.totalUsd)+"</div><div class="+cls(d.changeUsd)+" style='margin-bottom:8px'>"+(d.changeUsd>=0?"+":"−")+usd(Math.abs(d.changeUsd))+" <span class=muted>since the close</span></div><p id=returns class='small muted' style='margin:0 0 8px'></p><div id=prows></div>";loadReturns();
  rows(d.positions.map(p=>({ticker:p.ticker,title:cap1(p.name),sub:p.amount+" "+p.ticker+"x",right:usd(p.valueUsd),change:p.changeUsd==null?"–":(p.changeUsd>=0?"+":"−")+usd(Math.abs(p.changeUsd)),sign:p.changeUsd||0})),$("prows"))}
 async function loadStatus(){const r=await tool("market_status");$("status").textContent=r.text}
 const cap1=s=>s.charAt(0).toUpperCase()+s.slice(1);
@@ -162,6 +172,21 @@ async function loadBriefing(){const r=await tool("schedule_briefing",{});const d
  if(d.scheduled){$("bTime").value=d.time;$("bDays").value=d.days;$("briefText").textContent=r.text}$("briefOff").hidden=!d.scheduled}
 $("briefForm").addEventListener("submit",async e=>{e.preventDefault();const r=await tool("schedule_briefing",{time:$("bTime").value,days:$("bDays").value});$("briefText").textContent=r.text;$("briefOff").hidden=Boolean(r.error)});
 $("briefOff").onclick=async()=>{const r=await tool("schedule_briefing",{off:true});$("briefText").textContent=r.text;$("briefOff").hidden=true};
+async function loadPlans(){const r=await tool("my_recurring_buys");const host=$("plans");const list=(r.data&&r.data.plans)||[];
+ if(!list.length){host.innerHTML="<p class=empty>None yet. Each run arrives on your phone to sign; nothing buys itself.</p>";return}
+ host.innerHTML="";for(const p of list){const div=document.createElement("div");div.className="alert";const name=(CFG.universe.find(u=>u.ticker===p.ticker)||{}).token||p.ticker;
+  const what=usd(p.usd)+" of "+name+" "+p.schedule+(p.runs?" · signed "+p.signed+" of "+(p.runs-p.skipped):"");div.innerHTML="<span>"+escH(what)+"</span>";
+  const x=document.createElement("button");x.textContent="Stop";x.setAttribute("aria-label","Stop "+what);x.onclick=async()=>{x.disabled=true;await tool("stop_recurring_buy",{stock:p.ticker});loadPlans()};div.appendChild(x);host.appendChild(div)}}
+$("rCad").onchange=()=>{const c=$("rCad").value,d=$("rDay");if(c==="daily"){d.hidden=true}else{d.hidden=false;d.innerHTML=c==="weekly"?["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(x=>"<option>"+x+"</option>").join(""):Array.from({length:28},(_,i)=>"<option value='"+(i+1)+"'>Day "+(i+1)+"</option>").join("")}};
+$("planForm").addEventListener("submit",async e=>{e.preventDefault();const args={stock:$("rStock").value,amount_usd:Number($("rUsd").value),cadence:$("rCad").value,time:$("rTime").value};if(args.cadence!=="daily")args.day=$("rDay").value;
+ const r=await tool("recurring_buy",args);$("planMsg").textContent=r.text;$("planMsg").className="small "+(r.error?"err":"muted");if(!r.error){$("rUsd").value="";loadPlans()}});
+async function loadGuards(){const l=await tool("set_spending_limit",{});$("limitMsg").textContent=l.text;if(l.data&&l.data.dailyLimitUsd)$("gLimit").value=l.data.dailyLimitUsd;
+ const z=await tool("set_sleep_mode",{});$("sleepMsg").textContent=z.text;if(z.data){$("sOn").checked=z.data.on;if(z.data.from)$("sFrom").value=z.data.from;if(z.data.until)$("sTo").value=z.data.until}}
+$("limitForm").addEventListener("submit",async e=>{e.preventDefault();const v=Number($("gLimit").value);if(!(v>0))return;const r=await tool("set_spending_limit",{daily_usd:v});$("limitMsg").textContent=r.text});
+$("gNoLimit").onclick=async()=>{const r=await tool("set_spending_limit",{remove:true});$("limitMsg").textContent=r.text};
+$("sleepForm").addEventListener("submit",async e=>{e.preventDefault();const r=await tool("set_sleep_mode",$("sOn").checked?{on:true,from:$("sFrom").value,until:$("sTo").value}:{on:false});$("sleepMsg").textContent=r.text});
+async function loadReturns(){const r=await tool("my_returns",{});const host=$("returns");if(!host)return;if(r.error||!r.data||!r.data.totalCostUsd){host.textContent=r.error?r.text:"";return}
+ const d=r.data,g=d.totalGainUsd;host.innerHTML="Paid "+usd(d.totalCostUsd)+" · <b class="+cls(g)+">"+(g>=0?"+":"−")+usd(Math.abs(g))+" ("+(g/d.totalCostUsd*100).toFixed(1)+"%)</b> on cost, from your wallet's history"}
 async function loadAlerts(){const r=await tool("list_alerts");const host=$("alerts");const list=(r.data&&r.data.alerts)||[];
  if(!list.length){host.innerHTML="<p class=empty>No alerts yet. Add one below, or say “tell me if Tesla moves more than 2 percent.”</p>";return}
  host.innerHTML="";for(const a of list){const div=document.createElement("div");div.className="alert";
@@ -194,8 +219,8 @@ $("pushOff").onclick=async()=>{const reg=await navigator.serviceWorker.ready;con
 
 async function show(){const t=st.get("ah_at");const c=t&&claims(t);$("out").hidden=Boolean(c);$("in").hidden=!c;$("who").hidden=!c;
  if(!c)return;$("whoText").textContent=(c.wallet?c.wallet.slice(0,4)+"…"+c.wallet.slice(-4):"")+(c.verified?" · signed":" · watch-only");
- const nm=u=>u.name.replace(/^the /,"");const opts=[...CFG.universe].sort((a,b)=>nm(a).localeCompare(nm(b))).map(u=>"<option value='"+u.ticker+"'>"+escH(nm(u))+" ("+u.token+")</option>").join("");$("aStock").innerHTML=opts;$("wStock").innerHTML=opts;
- await Promise.all([loadStatus(),loadMovers(),loadPortfolio(),loadWatch(),loadAlerts(),loadBriefing(),loadTrade(),pushState()]).catch(()=>{});
+ const nm=u=>u.name.replace(/^the /,"");const opts=[...CFG.universe].sort((a,b)=>nm(a).localeCompare(nm(b))).map(u=>"<option value='"+u.ticker+"'>"+escH(nm(u))+" ("+u.token+")</option>").join("");$("aStock").innerHTML=opts;$("wStock").innerHTML=opts;$("rStock").innerHTML=opts;
+ await Promise.all([loadStatus(),loadMovers(),loadPortfolio(),loadWatch(),loadAlerts(),loadBriefing(),loadPlans(),loadGuards(),loadTrade(),pushState()]).catch(()=>{});
  const deep=location.hash.slice(1).toUpperCase();if(deep){const b=document.querySelector(".rowbtn[data-ticker='"+deep+"']");if(b){b.click();b.scrollIntoView({block:"center"})}}}
 $("signin").onclick=signin;$("signout").onclick=signout;
 finishSignin().then(show);`;
