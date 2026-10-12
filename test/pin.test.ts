@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { harness, linkWallet, mcp } from "./helpers.js";
 import { normalisePin } from "../src/auth/pin.js";
-import { route, routeInContext } from "../src/sim/planner.js";
+import { redact, route, routeInContext } from "../src/sim/planner.js";
 
 async function setup() {
   const h = harness();
@@ -56,5 +56,11 @@ describe("the scripted planner and PINs", () => {
     expect(routeInContext("four seven one nine", previous)).toEqual({ tool: "propose_trade", args: { ...previous.args, pin: "four seven one nine" } });
     expect(routeInContext("my pin is 4719", previous)).toEqual({ tool: "propose_trade", args: { ...previous.args, pin: "4719" } });
     expect(routeInContext("4719", { tool: "set_trade_pin", args: { remove: true } })).toEqual({ tool: "set_trade_pin", args: { remove: true, current_pin: "4719" } });
+  });
+});
+
+describe("the simulator's call trace", () => {
+  it("never shows a PIN", () => {
+    expect(redact({ stock: "tesla", pin: "4719", new_pin: "1357", current_pin: "", amount_usd: 25 })).toEqual({ stock: "tesla", pin: "••••", new_pin: "••••", current_pin: "", amount_usd: 25 });
   });
 });

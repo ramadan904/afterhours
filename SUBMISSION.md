@@ -30,9 +30,34 @@ And you can say *"buy 25 dollars of Apple."* Alexa won't do it. It prepares the 
 You open the confirm page, see a fresh quote, and sign it in your own wallet. Afterhours holds no keys. A misheard
 amount, or a TV talking in the background, can't move money. **Voice proposes, wallet disposes.**
 
+### Built for the 2 a.m. investor
+
+The hours Afterhours exists for are the hours people make their worst decisions. So it does what no broker app does
+by voice:
+
+- **Guardrails you set for your future self.** A daily spending limit that applies at once when lowered but waits
+  24 hours to be raised. **Sleep mode**: a trade asked for at 2 a.m. isn't prepared; it unlocks at 7 and arrives
+  on your phone as "Slept on it? Your Tesla buy is ready." A **spoken trade PIN**, like Alexa's voice purchasing
+  code, so the TV can't propose trades. And a **concentration check** before you sign ("After this, Tesla would be
+  46 percent of your tokenized stocks").
+- **Honesty about the market you're in.** "How deep is the Tesla market?" answers with real Jupiter quotes at $100,
+  $1k and $10k, and a large weekend order is warned before signing. "Is it Tesla or the market?" splits a move with
+  30-day betas. And at 9:35 a.m. **the open is scored**: "Tesla opened +1.9%. Its token had called +2.1%."
+- **Your money, read from the chain.** "How much have I made on Nvidia?" rebuilds your cost basis from your wallet's
+  own Solana history (each xStock change paired with the USDC that moved), and the companion app exports it as a
+  CSV for tax time. **Wallet watch** pushes within 5 minutes if tokens leave your wallet without a trade Afterhours
+  prepared.
+- **Investing without custody.** "Buy $25 of the S&P every Monday" sends a one-tap proposal to your phone each week;
+  your wallet still signs every one. "Keep me 60/40" plans a **self-funding rebalance** and prepares it only when you
+  say so. Every proposal is also a **Solana Action** (blink), and the confirm page shows a Solana Pay QR to sign on
+  your phone; Afterhours finds the landed transaction on chain by fee payer and blockhash, so nothing has to report
+  back.
+- **68 stocks and funds**, every mint verified in CI; a watchlist the briefing leads with; a briefing and a weekly
+  recap pushed at times you choose, in your own time zone; and the overnight chart as sound for screen-reader users.
+
 ## How it works
 
-- **MCP server** (TypeScript, official MCP SDK): stateless Streamable HTTP on `/mcp`, protocol 2025-11-25, nine tools
+- **MCP server** (TypeScript, official MCP SDK): stateless Streamable HTTP on `/mcp`, protocol 2025-11-25, 28 tools
   with `outputSchema`s and truthful annotations (reads are `readOnlyHint`, removing an alert is `destructiveHint`, and
   proposing a trade is explicitly *not* destructive because it moves nothing). Each result carries a sentence written
   to be spoken plus structured data for a screen.

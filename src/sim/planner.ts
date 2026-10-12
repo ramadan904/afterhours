@@ -23,6 +23,13 @@ import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import { resolveSymbol } from "../market/universe.js";
 import { VERSION } from "../version.js";
 
+const SECRET_ARGS = new Set(["pin", "current_pin", "new_pin"]);
+
+/** A PIN never shows in the call trace on screen. */
+export function redact(args: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(args).map(([k, v]) => [k, SECRET_ARGS.has(k) && v ? "••••" : v]));
+}
+
 export interface Step {
   tool: string;
   args: Record<string, unknown>;
@@ -88,7 +95,7 @@ export class McpSession {
     const content = (res.content ?? []) as { type: string; text?: string }[];
     const text = content.filter((c) => c.type === "text").map((c) => c.text).join(" ");
     const ui = res.isError ? null : await this.card(tool).catch(() => null);
-    return { tool, args, ms, text, isError: Boolean(res.isError), structured: res.structuredContent ?? null, ui };
+    return { tool, args: redact(args), ms, text, isError: Boolean(res.isError), structured: res.structuredContent ?? null, ui };
   }
 
   async close() {
