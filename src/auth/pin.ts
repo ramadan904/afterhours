@@ -7,8 +7,9 @@
  * proposal is prepared (and nothing is pushed to the phone) unless it's said.
  *
  * Stored as a salted scrypt hash, compared in constant time. Five wrong tries
- * lock voice trading for an hour. Changing or removing the PIN needs the
- * current one.
+ * lock voice trading for an hour. Tries are counted with an atomic counter
+ * before the comparison, so guesses sent in parallel can't get past five.
+ * Changing or removing the PIN needs the current one.
  */
 
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
@@ -25,6 +26,7 @@ interface PinRecord {
 }
 
 const key = (sub: string) => `pin:${sub}`;
+const tries = (sub: string) => `pintries:${sub}`;
 
 const digest = (pin: string, salt: string) => scryptSync(pin, Buffer.from(salt, "base64"), 32).toString("base64");
 
@@ -48,10 +50,12 @@ export async function hasPin(store: Store, sub: string): Promise<boolean> {
 export async function setPin(store: Store, sub: string, pin: string): Promise<void> {
   const salt = randomBytes(16).toString("base64");
   await store.set(key(sub), { salt, hash: digest(pin, salt), failures: 0 } satisfies PinRecord);
+  await store.del(tries(sub));
 }
 
 export async function removePin(store: Store, sub: string): Promise<void> {
   await store.del(key(sub));
+  await store.del(tries(sub));
 }
 
 export type PinCheck = { ok: true } | { ok: false; reason: "missing" | "wrong" | "locked"; triesLeft?: number; lockedUntil?: number };
@@ -62,14 +66,23 @@ export async function checkPin(store: Store, sub: string, said: string | undefin
   if (!rec) return { ok: true };
   if (rec.lockedUntil && rec.lockedUntil > now) return { ok: false, reason: "locked", lockedUntil: rec.lockedUntil };
   if (said === undefined || said.trim() === "") return { ok: false, reason: "missing" };
+  // Count the try before comparing: the counter, not the record, is what holds
+  // under concurrent guesses. Its window opens on the first wrong-or-right try
+  // and closes an hour later, before any lock it caused has run out.
+  const n = await store.incr(tries(sub), LOCK_MS / 1000);
+  if (n > MAX_TRIES) {
+    const lockedUntil = rec.lockedUntil && rec.lockedUntil > now ? rec.lockedUntil : now + LOCK_MS;
+    await store.set(key(sub), { ...rec, failures: 0, lockedUntil });
+    return { ok: false, reason: "locked", lockedUntil };
+  }
   const given = Buffer.from(digest(normalisePin(said), rec.salt), "base64");
   const want = Buffer.from(rec.hash, "base64");
   if (given.length === want.length && timingSafeEqual(given, want)) {
-    if (rec.failures) await store.set(key(sub), { ...rec, failures: 0, lockedUntil: undefined });
+    await store.del(tries(sub));
+    if (rec.failures || rec.lockedUntil) await store.set(key(sub), { ...rec, failures: 0, lockedUntil: undefined });
     return { ok: true };
   }
-  const failures = (rec.lockedUntil && rec.lockedUntil <= now ? 0 : rec.failures) + 1;
-  const locked = failures >= MAX_TRIES ? now + LOCK_MS : undefined;
-  await store.set(key(sub), { ...rec, failures: locked ? 0 : failures, lockedUntil: locked });
-  return locked ? { ok: false, reason: "locked", lockedUntil: locked } : { ok: false, reason: "wrong", triesLeft: MAX_TRIES - failures };
+  const locked = n >= MAX_TRIES ? now + LOCK_MS : undefined;
+  await store.set(key(sub), { ...rec, failures: locked ? 0 : n, lockedUntil: locked });
+  return locked ? { ok: false, reason: "locked", lockedUntil: locked } : { ok: false, reason: "wrong", triesLeft: MAX_TRIES - n };
 }

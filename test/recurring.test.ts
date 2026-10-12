@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createECDH, randomBytes } from "node:crypto";
 import { BASE, SUNDAY, harness, linkWallet, mcp } from "./helpers.js";
 import { recordTape } from "../src/market/tape.js";
-import { listPlans, parseWeekday, runsOn, type RecurringPlan } from "../src/chain/recurring.js";
+import { listPlans, parseWeekday, runDuePlans, runsOn, type RecurringPlan } from "../src/chain/recurring.js";
 import { getIntent, saveIntent } from "../src/chain/trade.js";
 import { route } from "../src/sim/planner.js";
 import type { PushSender } from "../src/notify/push.js";
@@ -76,6 +76,16 @@ describe("recurring buys", () => {
     expect(sent).toHaveLength(2);
     const after = (await listPlans(h.svc, sub))[0];
     expect(after.runs).toHaveLength(2);
+  });
+
+  it("runs once even when two samplers reach the plan at the same moment", async () => {
+    const { h, session, sent, at } = await setup();
+    await session.call("recurring_buy", { stock: "SPY", amount_usd: 25, cadence: "daily", time: "9" });
+    at("2026-10-12T13:02:00Z");
+    const prices = new Map([["SPY", 600]]);
+    const [a, b] = await Promise.all([runDuePlans(h.svc, prices), runDuePlans(h.svc, prices)]);
+    expect(a.length + b.length).toBe(1);
+    expect(sent).toHaveLength(1);
   });
 
   it("skips a run that would break the daily limit, and says so", async () => {

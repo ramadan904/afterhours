@@ -37,6 +37,16 @@ describe("spoken trade PIN", () => {
     expect((await session.call("propose_trade", { ...buy, pin: "4719" })).text).toContain("locked until");
   });
 
+  it("counts guesses sent in parallel, so no more than five are ever compared", async () => {
+    const { session } = await setup();
+    await session.call("set_trade_pin", { new_pin: "4719" });
+    const guesses = ["1000", "1001", "1002", "1003", "1004", "1005", "1006", "4719"];
+    const answers = await Promise.all(guesses.map((pin) => session.call("propose_trade", { ...buy, pin })));
+    expect(answers.filter((a) => (a.structured as { status?: string } | undefined)?.status === "awaiting_signature").length).toBeLessThanOrEqual(1);
+    expect(answers.filter((a) => /locked until/.test(a.text)).length).toBeGreaterThanOrEqual(3);
+    expect((await session.call("propose_trade", { ...buy, pin: "4719" })).text).toContain("locked until");
+  });
+
   it("needs the current PIN to change or remove it, and refuses easy ones", async () => {
     const { session } = await setup();
     expect((await session.call("set_trade_pin", { new_pin: "1234" })).text).toBe("That PIN is too easy to guess. Pick digits that aren't all the same or in a row.");

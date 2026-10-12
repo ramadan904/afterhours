@@ -154,6 +154,9 @@ export async function runDuePlans(svc: Services, prices: Map<string, number>): P
     for (const plan of plans) {
       const late = local.minutes - plan.minutes;
       if (late < 0 || late >= WINDOW_MIN || plan.lastRun === local.date || !runsOn(plan, local)) continue;
+      // Two samplers (a second instance, a retried EventBridge call) can read
+      // the plan before either saves it; only the one that claims the day runs it.
+      if ((await svc.store.incr(`planrun:${plan.id}:${local.date}`, 2 * 86_400)) > 1) continue;
       plan.lastRun = local.date;
       changed = true;
       const name = label(plan.ticker);
