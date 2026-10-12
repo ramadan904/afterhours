@@ -24,12 +24,14 @@ import { LISTINGS, listingByTicker, resolveSymbol } from "../market/universe.js"
 import { getMarketSession } from "../market/session.js";
 import { rankByGap, readGap, NOISE_FLOOR_BPS, type GapReading } from "../market/gap.js";
 import { MAX_WATCHED, editWatchlist, getWatchlist } from "../market/watchlist.js";
+import { valuePortfolio } from "../market/portfolio.js";
+import { DAYS_SPOKEN, getBriefing, parseTime, setBriefing, spokenTime, type BriefingDays } from "../notify/briefing.js";
+import { listSubscriptions } from "../notify/push.js";
 import { aroundTime, capitalise, gapSentence, move, pct, sessionSentence, usd, verdictSentence, nextOpenPhrase, whenSpoken } from "../market/speech.js";
 import { PriceSourceError, type Board } from "../market/prices.js";
 import { alertNews, isPriceAlert, listAlerts, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
 import { overnightRange, readTape, type OvernightRange } from "../market/tape.js";
 import { armIntent, createIntent, getIntent, intentByCode, maxTradeUsd, recentlyTriggered, saveIntent, type TradeIntent } from "../chain/trade.js";
-import { listSubscriptions } from "../notify/push.js";
 import { readOpens, sampleOpens, trackRecord, type OpenRecord } from "../market/history.js";
 import { EASTERN, getZone, resolveZone, setZone, zoneName, type Zone } from "../market/zones.js";
 
@@ -163,24 +165,6 @@ export function rangeSentence(r: GapReading, range: OvernightRange | null, now: 
 }
 
 /** Values holdings at token prices, with each one's move against its share. */
-export function valuePortfolio(holdings: { ticker: string; amount: number }[], readings: GapReading[]) {
-  const positions = holdings
-    .map((h) => {
-      const r = readings.find((x) => x.ticker === h.ticker);
-      const listing = listingByTicker(h.ticker);
-      if (!r || !listing) return null;
-      const valueUsd = h.amount * r.tokenPrice;
-      const changeUsd = r.sharePrice && r.kind !== "stale_reference" ? h.amount * (r.tokenPrice - r.sharePrice) : null;
-      return { ticker: h.ticker, name: listing.spoken, amount: h.amount, valueUsd, changeUsd, reading: r };
-    })
-    .filter((p): p is NonNullable<typeof p> => p !== null)
-    .sort((a, b) => b.valueUsd - a.valueUsd);
-  const total = positions.reduce((t, p) => t + p.valueUsd, 0);
-  const change = positions.reduce((t, p) => t + (p.changeUsd ?? 0), 0);
-  const biggest = [...positions].sort((a, b) => Math.abs(b.changeUsd ?? 0) - Math.abs(a.changeUsd ?? 0))[0] ?? null;
-  return { positions, total, change, biggest };
-}
-
 /**
  * Waits for `work` at most `ms`, then gives up with null. Used where an
  * optional extra (the wallet in a briefing) must never cost the voice turn
@@ -768,6 +752,60 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           .filter(Boolean)
           .join(" ");
         return say(text, { dataSource: board.source, names: ranked.map(readingOut), max: MAX_WATCHED });
+      }),
+  );
+
+  server.registerTool(
+    "schedule_briefing",
+    {
+      title: "Send my briefing at a time of day",
+      description:
+        "Sets, changes or turns off a briefing pushed to the user's phone at a time of day in their time zone (their positions, watched names that moved, and the biggest moves). Use for 'brief me every weekday at 7', 'send my briefing at 6:30 a.m.', 'stop my morning briefing', 'when is my briefing?'. Call with no arguments to read the current setting.",
+      inputSchema: {
+        time: z.string().optional().describe("Time of day as said, e.g. '7', '7:30 am', '18:00', 'noon'."),
+        days: z.enum(["weekdays", "daily", "weekends"]).optional().describe("Default weekdays."),
+        off: z.boolean().optional().describe("True to stop the briefing."),
+      },
+      outputSchema: {
+        scheduled: z.boolean(),
+        time: z.string().nullable().describe("HH:MM, 24-hour, in the account's time zone."),
+        days: z.enum(["weekdays", "daily", "weekends"]).nullable(),
+        timeZone: z.string(),
+        devices: z.number().describe("Devices with notifications on; the briefing needs at least one."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ time, days, off }) =>
+      guard(async () => {
+        const zone = await getZone(svc.store, caller.sub);
+        const devices = (await listSubscriptions(svc, caller.sub)).length;
+        const out = (s: { minutes: number; days: BriefingDays } | null) => ({
+          scheduled: Boolean(s),
+          time: s ? `${String(Math.floor(s.minutes / 60)).padStart(2, "0")}:${String(s.minutes % 60).padStart(2, "0")}` : null,
+          days: s?.days ?? null,
+          timeZone: zone.tz,
+          devices,
+        });
+        const where = zone.label === "Eastern" ? "Eastern" : `${zone.label} time`;
+        const noDevice = devices === 0 ? " It comes as a notification, so turn notifications on in the Afterhours app on your phone." : "";
+        const current = await getBriefing(svc, caller.sub);
+        if (off) {
+          await setBriefing(svc, caller.sub, null);
+          return say(current ? "Done. I've stopped your scheduled briefing." : "You didn't have a scheduled briefing.", out(null));
+        }
+        if (!time && !days) {
+          return say(
+            current
+              ? `Your briefing comes ${DAYS_SPOKEN[current.days]} at ${spokenTime(current.minutes)} ${where}.${noDevice}`
+              : "You don't have a scheduled briefing. You can say, brief me every weekday at 7.",
+            out(current),
+          );
+        }
+        const minutes = time ? parseTime(time) : (current?.minutes ?? null);
+        if (minutes === null) return fail(time ? `I didn't catch a time in "${time}". Try something like 7 a.m. or 6:30.` : "What time should I send it?");
+        const schedule = { minutes, days: days ?? current?.days ?? ("weekdays" as const), wallet: caller.wallet ?? undefined };
+        await setBriefing(svc, caller.sub, schedule);
+        return say(`Done. I'll send your briefing ${DAYS_SPOKEN[schedule.days]} at ${spokenTime(minutes)} ${where}.${noDevice}`, out(schedule));
       }),
   );
 

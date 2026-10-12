@@ -68,7 +68,11 @@ ${p.sample ? `<p class="small muted">This server runs on sample data; you can si
 <button class="primary" type="submit">Add</button></form><p id="alertMsg" class="small" role="status"></p></section>
 <section class="sec" aria-labelledby="tTitle"><h2 id="tTitle">Latest trade</h2><div id="trade"><p class="empty">No trade yet. Say "buy 25 dollars of Apple" to Alexa.</p></div></section>
 <section class="sec" aria-labelledby="nTitle"><h2 id="nTitle">Notifications</h2><p id="pushText" class="muted" style="margin:0 0 10px">Get your alerts on this device the moment they go off, even at 2 a.m.</p>
-<div class="row"><button class="primary" id="pushOn" hidden>Turn on</button><button id="pushTest" hidden>Send a test</button><button id="pushOff" hidden>Turn off</button></div></section>
+<div class="row"><button class="primary" id="pushOn" hidden>Turn on</button><button id="pushTest" hidden>Send a test</button><button id="pushOff" hidden>Turn off</button></div>
+<h3 style="margin:18px 0 6px;font-size:15px">Scheduled briefing</h3><p id="briefText" class="small muted" style="margin:0 0 8px">Your positions, watchlist and the biggest moves, sent at a time you pick.</p>
+<form class="form" id="briefForm"><label class="sr-only" for="bTime">Time</label><input id="bTime" type="time" required value="07:00">
+<label class="sr-only" for="bDays">Days</label><select id="bDays"><option value="weekdays">Weekdays</option><option value="daily">Every day</option><option value="weekends">Weekends</option></select>
+<button class="primary" type="submit">Save</button><button type="button" id="briefOff" hidden>Stop</button></form></section>
 </main></div>`;
 
   const script = `
@@ -139,6 +143,10 @@ async function loadWatch(){const r=await tool("my_watchlist");const host=$("watc
  for(const m of list){const x=document.createElement("button");x.className="small";x.textContent="× "+m.token;x.setAttribute("aria-label","Stop watching "+cap1(m.name));
   x.onclick=async()=>{x.disabled=true;const r=await tool("edit_watchlist",{remove:[m.ticker]});$("watchMsg").textContent=r.text;loadWatch()};edit.appendChild(x)}}
 $("watchForm").addEventListener("submit",async e=>{e.preventDefault();const r=await tool("edit_watchlist",{add:[$("wStock").value]});$("watchMsg").textContent=r.text;$("watchMsg").className="small "+(r.error?"err":"muted");loadWatch()});
+async function loadBriefing(){const r=await tool("schedule_briefing",{});const d=r.data;if(!d)return;
+ if(d.scheduled){$("bTime").value=d.time;$("bDays").value=d.days;$("briefText").textContent=r.text}$("briefOff").hidden=!d.scheduled}
+$("briefForm").addEventListener("submit",async e=>{e.preventDefault();const r=await tool("schedule_briefing",{time:$("bTime").value,days:$("bDays").value});$("briefText").textContent=r.text;$("briefOff").hidden=Boolean(r.error)});
+$("briefOff").onclick=async()=>{const r=await tool("schedule_briefing",{off:true});$("briefText").textContent=r.text;$("briefOff").hidden=true};
 async function loadAlerts(){const r=await tool("list_alerts");const host=$("alerts");const list=(r.data&&r.data.alerts)||[];
  if(!list.length){host.innerHTML="<p class=empty>No alerts yet. Add one below, or say “tell me if Tesla moves more than 2 percent.”</p>";return}
  host.innerHTML="";for(const a of list){const div=document.createElement("div");div.className="alert";
@@ -172,7 +180,7 @@ $("pushOff").onclick=async()=>{const reg=await navigator.serviceWorker.ready;con
 async function show(){const t=st.get("ah_at");const c=t&&claims(t);$("out").hidden=Boolean(c);$("in").hidden=!c;$("who").hidden=!c;
  if(!c)return;$("whoText").textContent=(c.wallet?c.wallet.slice(0,4)+"…"+c.wallet.slice(-4):"")+(c.verified?" · signed":" · watch-only");
  const nm=u=>u.name.replace(/^the /,"");const opts=[...CFG.universe].sort((a,b)=>nm(a).localeCompare(nm(b))).map(u=>"<option value='"+u.ticker+"'>"+escH(nm(u))+" ("+u.token+")</option>").join("");$("aStock").innerHTML=opts;$("wStock").innerHTML=opts;
- await Promise.all([loadStatus(),loadMovers(),loadPortfolio(),loadWatch(),loadAlerts(),loadTrade(),pushState()]).catch(()=>{});
+ await Promise.all([loadStatus(),loadMovers(),loadPortfolio(),loadWatch(),loadAlerts(),loadBriefing(),loadTrade(),pushState()]).catch(()=>{});
  const deep=location.hash.slice(1).toUpperCase();if(deep){const b=document.querySelector(".rowbtn[data-ticker='"+deep+"']");if(b){b.click();b.scrollIntoView({block:"center"})}}}
 $("signin").onclick=signin;$("signout").onclick=signout;
 finishSignin().then(show);`;

@@ -135,6 +135,13 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "trade_status", args: code ? { code } : {} };
   }
+  if (/\bbrief(ing)?\b/.test(t) && /\b(stop|cancel|turn off|no more)\b/.test(t)) return { tool: "schedule_briefing", args: { off: true } };
+  if (/\bbrief(ing)?\b/.test(t) && /\bwhen\b.*\b(is|do i get|does)\b/.test(t)) return { tool: "schedule_briefing", args: {} };
+  const timed = /\b(?:at|@)\s+(noon|\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|in the morning|in the evening)?)/.exec(t);
+  if (/\bbrief(ing)?\b/.test(t) && timed && /\b(every|each|daily|send|schedule|set|weekdays?|weekends?|mornings?)\b/.test(t)) {
+    const days = /\bweekends?\b/.test(t) ? "weekends" : /\b(every day|daily|each day)\b/.test(t) ? "daily" : "weekdays";
+    return { tool: "schedule_briefing", args: { time: timed[1].trim(), days } };
+  }
   if (/\b(watch ?list|watching)\b/.test(t) && /\b(how|what)\b/.test(t) && !/\b(add|put|remove|take|drop|stop)\b/.test(t)) {
     return { tool: "my_watchlist", args: {} };
   }
