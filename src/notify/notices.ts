@@ -48,3 +48,11 @@ export function triggeredTradeNotice(intent: TradeIntent, baseUrl: string, zone:
     tag: `trade-${intent.id}`,
   };
 }
+
+export function settledTradeNotice(intent: TradeIntent, baseUrl: string): Notice {
+  const token = listingByTicker(intent.ticker)?.token ?? intent.ticker;
+  const what = `${intent.side === "buy" ? "Buy" : "Sell"} of ${usd(intent.usd)} of ${token}`;
+  return intent.status === "confirmed"
+    ? { title: `${what} confirmed`, body: "Solana confirmed it, paid for by your wallet.", url: `${baseUrl}/go/${intent.code}`, tag: `trade-${intent.id}` }
+    : { title: `${what} didn't go through`, body: "The swap failed on chain. Nothing was filled.", url: `${baseUrl}/go/${intent.code}`, tag: `trade-${intent.id}` };
+}

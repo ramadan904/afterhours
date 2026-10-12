@@ -13,6 +13,7 @@
  * other wallet's signature is not a valid one.
  */
 
+import { readTransaction } from "./txmessage.js";
 import { randomBytes, randomInt } from "node:crypto";
 import type { Store } from "../store/store.js";
 import { USDC, listingByTicker } from "../market/universe.js";
@@ -54,6 +55,13 @@ export interface TradeIntent {
   submittedAt?: number;
   error?: string;
   condition?: TradeCondition;
+  /**
+   * Blockhashes of the transactions built for this trade (newest last). A
+   * wallet that signs from a blink or a QR code never tells us the signature,
+   * so the trade is found on chain by fee payer and blockhash instead.
+   */
+  builtBlockhashes?: string[];
+  builtAt?: number;
 }
 
 export const INTENT_TTL_SECONDS = 15 * 60;
@@ -293,4 +301,45 @@ export async function confirmOnChain(
   if (payer !== wallet) return { status: "failed", error: "that transaction wasn't signed by your linked wallet" };
   if (tx.meta?.err) return { status: "failed", error: "the swap failed on chain" };
   return { status: "confirmed" };
+}
+
+async function rpc<T>(rpcUrl: string, method: string, params: unknown[], fetchImpl: typeof fetch): Promise<T | null> {
+  const res = await fetchImpl(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    signal: AbortSignal.timeout(4000),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  if (!res.ok) return null;
+  return ((await res.json()) as { result?: T }).result ?? null;
+}
+
+/**
+ * Looks through the wallet's latest transactions for one we built: paid for
+ * by the wallet, against a blockhash we handed out for this trade. Only
+ * transactions since the trade was built are read.
+ */
+export async function findLanded(
+  rpcUrl: string,
+  wallet: string,
+  blockhashes: string[],
+  since: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ signature: string; failed: boolean } | null> {
+  if (blockhashes.length === 0) return null;
+  const recent = (await rpc<{ signature: string; blockTime?: number | null }[]>(rpcUrl, "getSignaturesForAddress", [wallet, { limit: 20, commitment: "confirmed" }], fetchImpl)) ?? [];
+  const candidates = recent.filter((s) => !s.blockTime || s.blockTime * 1000 >= since - 60_000).slice(0, 8);
+  const found = await Promise.all(
+    candidates.map(async ({ signature }) => {
+      const tx = await rpc<{ transaction?: [string, string]; meta?: { err: unknown } | null }>(
+        rpcUrl,
+        "getTransaction",
+        [signature, { encoding: "base64", commitment: "confirmed", maxSupportedTransactionVersion: 0 }],
+        fetchImpl,
+      ).catch(() => null);
+      const read = tx?.transaction?.[0] ? readTransaction(tx.transaction[0]) : null;
+      return read && read.payer === wallet && blockhashes.includes(read.blockhash) ? { signature, failed: Boolean(tx?.meta?.err) } : null;
+    }),
+  );
+  return found.find((f) => f !== null) ?? null;
 }

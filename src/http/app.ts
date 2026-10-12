@@ -30,6 +30,7 @@ import { accountApi } from "./account-api.js";
 import { companionPage } from "./companion.js";
 import { icon, manifest, serviceWorker } from "./pwa.js";
 import { readTape, recordTape } from "../market/tape.js";
+import { ACTION_HEADERS, actionsApi, isActionPath } from "./actions-api.js";
 import { toolStats, uptimeSeconds } from "./stats.js";
 import { timingSafeEqual } from "node:crypto";
 
@@ -139,6 +140,14 @@ export function createApp(svc: Services) {
     const path = url.pathname;
     const method = request.method.toUpperCase();
 
+    // Solana Actions carry their own CORS and version headers, OPTIONS included.
+    if (isActionPath(path)) {
+      try {
+        return await actionsApi(svc, request, url);
+      } catch {
+        return new Response(JSON.stringify({ message: "Something went wrong." }), { status: 500, headers: { ...ACTION_HEADERS, "content-type": "application/json" } });
+      }
+    }
     if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
     try {
@@ -153,6 +162,8 @@ export function createApp(svc: Services) {
 
       if (path === "/" && method === "GET") return landingPage({ baseUrl: svc.baseUrl, sample: svc.sample, repoUrl: REPO_URL });
       if (path === "/go" && method === "GET") return confirmPage({ code: url.searchParams.get("code") ?? "" });
+      // /go/123456 is the same page, and the URL a blink client maps to the action (see /actions.json).
+      if (/^\/go\/\d{6}$/.test(path) && method === "GET") return confirmPage({ code: path.slice(4) });
       if (path.startsWith("/api/trade")) return await tradeApi(svc, request, url);
       if (path.startsWith("/api/push/") || path === "/api/tape") return await accountApi(svc, request, url);
 

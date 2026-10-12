@@ -4,14 +4,19 @@
  * tests and in local browser runs without network access.
  */
 
+import { randomBytes } from "node:crypto";
+import bs58 from "bs58";
 import { LISTINGS, USDC } from "../src/market/universe.js";
+import { minimalTransaction } from "../src/chain/txmessage.js";
 import { SAMPLE_BOARD } from "../src/market/prices.js";
 
 export interface FakeState {
   /** Wallet → ticker → human amount. */
   balances: Record<string, Record<string, number>>;
-  /** Signature → fee payer and outcome. */
-  transactions: Record<string, { payer: string; err?: unknown }>;
+  /** Signature → fee payer, outcome, and the blockhash it was built against. */
+  transactions: Record<string, { payer: string; err?: unknown; blockhash?: string; blockTime?: number }>;
+  /** Blockhashes of the swap transactions built, newest last. */
+  built?: string[];
   /** ISO time of the share leg's last print. */
   shareUpdatedAt: string;
   calls: string[];
@@ -54,7 +59,9 @@ export function fakeUpstreams(state: FakeState) {
     }
 
     if (url.pathname === "/swap/v1/swap") {
-      return json({ swapTransaction: Buffer.from(`unsigned-tx-for-${body.userPublicKey}`).toString("base64") });
+      const blockhash = bs58.encode(randomBytes(32));
+      (state.built ??= []).push(blockhash);
+      return json({ swapTransaction: minimalTransaction(body.userPublicKey, blockhash) });
     }
 
     if (body?.jsonrpc === "2.0" && body.method === "getTokenAccountsByOwner") {
@@ -69,6 +76,17 @@ export function fakeUpstreams(state: FakeState) {
           })),
         },
       });
+    }
+
+    if (body?.jsonrpc === "2.0" && body.method === "getSignaturesForAddress") {
+      const mine = Object.entries(state.transactions).filter(([, t]) => t.payer === body.params[0]);
+      return json({ jsonrpc: "2.0", id: body.id, result: mine.reverse().map(([signature, t]) => ({ signature, blockTime: t.blockTime ?? null, err: t.err ?? null })) });
+    }
+
+    if (body?.jsonrpc === "2.0" && body.method === "getTransaction" && body.params[1]?.encoding === "base64") {
+      const tx = state.transactions[body.params[0]];
+      const raw = tx ? minimalTransaction(tx.payer, tx.blockhash ?? bs58.encode(new Uint8Array(32).fill(7))) : null;
+      return json({ jsonrpc: "2.0", id: body.id, result: tx ? { meta: { err: tx.err ?? null }, transaction: [raw, "base64"] } : null });
     }
 
     if (body?.jsonrpc === "2.0" && body.method === "getTransaction") {

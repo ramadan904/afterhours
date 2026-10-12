@@ -22,7 +22,8 @@ import { getMarketSession, lastRegularClose } from "./session.js";
 import { SAMPLE_BOARD } from "./prices.js";
 import { evaluateAll } from "./alerts.js";
 import { notify } from "../notify/push.js";
-import { alertNotice, triggeredTradeNotice } from "../notify/notices.js";
+import { alertNotice, settledTradeNotice, triggeredTradeNotice } from "../notify/notices.js";
+import { settlePending } from "../chain/settle.js";
 import { triggerArmed } from "../chain/trade.js";
 import { getZone } from "./zones.js";
 import { refreshOpenHistoryIfStale } from "./history.js";
@@ -120,6 +121,10 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   const prices = new Map(readings.map((r) => [r.ticker, r.tokenPrice]));
   const triggered = await triggerArmed(svc.store, prices, now);
   await Promise.all(triggered.map((t) => send(t.sub, (zone) => triggeredTradeNotice(t, svc.baseUrl, zone))));
+
+  // Trades signed from a blink or a phone's QR scan land without telling us; find them.
+  const settled = await settlePending(svc).catch(() => []);
+  await Promise.all(settled.map((t) => send(t.sub, () => settledTradeNotice(t, svc.baseUrl))));
 
   // Once a day, rebuild the open track record from public history (background).
   void refreshOpenHistoryIfStale(svc).catch(() => false);

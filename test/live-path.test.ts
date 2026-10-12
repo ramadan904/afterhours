@@ -1,4 +1,5 @@
 import { LISTINGS } from "../src/market/universe.js";
+import { readTransaction } from "../src/chain/txmessage.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BASE, FRIDAY_CLOSE, SUNDAY, harness, linkWallet, mcp } from "./helpers.js";
 import { fakeUpstreams, type FakeState } from "./fake-upstreams.js";
@@ -65,7 +66,7 @@ describe("live data path (Jupiter + Solana RPC shapes)", () => {
 
     const post = (path: string, body: unknown) => h.app(new Request(`${BASE}${path}`, { method: "POST", body: JSON.stringify(body) }));
     const built = await (await post("/api/trade/build", { code })).json();
-    expect(Buffer.from(built.transaction, "base64").toString()).toBe(`unsigned-tx-for-${wallet.address}`);
+    expect(readTransaction(built.transaction)).toEqual({ payer: wallet.address, blockhash: state.built!.at(-1) });
     expect(built.pay).toBe("40 USDC");
     expect(built.receive).toMatch(/^0\.17\d+ NVDAx$/);
     expect(state.calls).toContain("/swap/v1/quote");

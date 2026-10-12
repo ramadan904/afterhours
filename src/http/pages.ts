@@ -179,6 +179,11 @@ export function confirmPage(p: { code: string }): Response {
 <div id="quote" class="small muted" style="margin-top:12px"></div>
 <div class="row" style="margin-top:16px" id="actions"></div>
 <p id="msg" class="small" role="status" aria-live="polite"></p>
+<div id="phone" hidden style="margin-top:16px;border-top:1px solid var(--line);padding-top:16px">
+<h3 style="margin:0 0 8px;font-size:16px">Or sign on your phone</h3>
+<div class="row" style="align-items:center;flex-wrap:nowrap"><img id="payQr" width="148" height="148" alt="QR code that opens this trade in a phone wallet" style="background:#fff;border-radius:8px;padding:6px;flex:none">
+<p class="small muted" style="margin:0">Scan with Phantom, Solflare or Backpack. Your wallet fetches a fresh quote for this trade and signs it there. This page updates when Solana confirms it.</p></div>
+</div>
 </div>
 </main>`;
   const script = `${WALLET_JS}
@@ -196,7 +201,8 @@ function show(i){current=i;$("intent").hidden=false;$("title").textContent=(i.si
   const c=document.createElement("button");c.textContent="Cancel";c.onclick=cancel;a.appendChild(c)}
  if(i.status==="failed")$("msg").textContent=i.error?"Not confirmed: "+i.error+".":"The swap failed. Nothing was filled.";
  if(i.status==="confirmed")$("msg").textContent="Done. Alexa can tell you it went through.";
- if(i.status==="submitted")setTimeout(poll,2500)}
+ const phone=i.status==="awaiting_signature";$("phone").hidden=!phone;if(phone&&!$("payQr").src)$("payQr").src="/qr.svg?pay="+i.code;
+ clearTimeout(window.__poll);if(i.status==="submitted")window.__poll=setTimeout(poll,2500);else if(phone)window.__poll=setTimeout(poll,6000)}
 async function lookup(e){e&&e.preventDefault();$("lookupErr").textContent="";const code=$("code").value.replace(/\\D/g,"");
  try{show(await api("/api/trade?code="+code))}catch(err){$("lookupErr").textContent=err.message}}
 async function sign(w,b){b.disabled=true;$("msg").textContent="Connecting…";

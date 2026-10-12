@@ -213,6 +213,8 @@ function intentOut(i: TradeIntent, baseUrl: string) {
     priceAtProposal: i.priceAtProposal,
     expiresAt: new Date(i.expiresAt).toISOString(),
     confirmUrl: i.code ? `${baseUrl}/go?code=${i.code}` : `${baseUrl}/app/`,
+    // A Solana Action any blink client or phone wallet can sign; null until there's a code.
+    actionUrl: i.code ? `solana-action:${baseUrl}/api/actions/trade/${i.code}` : null,
     signature: i.signature ?? null,
     triggerPrice: i.condition?.price ?? null,
     triggerDirection: i.condition ? (i.condition.above ? ("above" as const) : ("below" as const)) : null,
@@ -229,6 +231,7 @@ const intentShape = {
   priceAtProposal: z.number(),
   expiresAt: z.string(),
   confirmUrl: z.string(),
+  actionUrl: z.string().nullable().describe("solana-action: URL for signing in a blink-capable wallet."),
   signature: z.string().nullable(),
   triggerPrice: z.number().nullable(),
   triggerDirection: z.enum(["above", "below"]).nullable(),
