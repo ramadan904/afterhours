@@ -59,6 +59,8 @@ ${p.sample ? `<p class="small muted">This server runs on sample data; you can si
 <p class="status" id="status" aria-live="polite"></p>
 <section class="sec" aria-labelledby="pTitle"><h2 id="pTitle">Your portfolio</h2><div id="portfolio"><p class="empty">Loading…</p></div></section>
 <section class="sec" aria-labelledby="mTitle"><h2 id="mTitle">Biggest moves</h2><div id="movers"><p class="empty">Loading…</p></div></section>
+<section class="sec" aria-labelledby="wTitle"><h2 id="wTitle">Watchlist</h2><div id="watch"><p class="empty">Loading…</p></div><div class="row" id="watchEdit" style="margin-top:8px;gap:6px"></div>
+<form class="form" id="watchForm"><label class="sr-only" for="wStock">Stock to watch</label><select id="wStock"></select><button class="primary" type="submit">Watch</button></form><p id="watchMsg" class="small" role="status"></p></section>
 <section class="sec" aria-labelledby="aTitle"><h2 id="aTitle">Alerts</h2><div id="alerts"></div>
 <form class="form" id="alertForm"><label class="sr-only" for="aStock">Stock</label><select id="aStock"></select>
 <label class="sr-only" for="aKind">Kind</label><select id="aKind"><option value="percent">moves %</option><option value="price">price $</option></select>
@@ -131,6 +133,12 @@ const cap1=s=>s.charAt(0).toUpperCase()+s.slice(1);
 async function loadMovers(){const r=await tool("overnight_brief",{count:5});
  const d=r.data;if(!d){$("movers").innerHTML="<p class=empty>"+escH(r.text)+"</p>";return}
  rows(d.movers.map(m=>({ticker:m.ticker,title:cap1(m.name),sub:m.token+" vs "+m.comparedWith,right:usd(m.tokenPrice),change:pct(m.gapPercent),sign:m.gapPercent})),$("movers"))}
+async function loadWatch(){const r=await tool("my_watchlist");const host=$("watch"),edit=$("watchEdit");edit.innerHTML="";const list=(r.data&&r.data.names)||[];
+ if(!list.length){host.innerHTML="<p class=empty>Nothing yet. Pick a name below, or say “add Netflix to my watchlist.”</p>";return}
+ rows(list.map(m=>({ticker:m.ticker,title:cap1(m.name),sub:m.token+" vs "+m.comparedWith,right:usd(m.tokenPrice),change:m.gapPercent==null?"–":pct(m.gapPercent),sign:m.gapPercent||0})),host);
+ for(const m of list){const x=document.createElement("button");x.className="small";x.textContent="× "+m.token;x.setAttribute("aria-label","Stop watching "+cap1(m.name));
+  x.onclick=async()=>{x.disabled=true;const r=await tool("edit_watchlist",{remove:[m.ticker]});$("watchMsg").textContent=r.text;loadWatch()};edit.appendChild(x)}}
+$("watchForm").addEventListener("submit",async e=>{e.preventDefault();const r=await tool("edit_watchlist",{add:[$("wStock").value]});$("watchMsg").textContent=r.text;$("watchMsg").className="small "+(r.error?"err":"muted");loadWatch()});
 async function loadAlerts(){const r=await tool("list_alerts");const host=$("alerts");const list=(r.data&&r.data.alerts)||[];
  if(!list.length){host.innerHTML="<p class=empty>No alerts yet. Add one below, or say “tell me if Tesla moves more than 2 percent.”</p>";return}
  host.innerHTML="";for(const a of list){const div=document.createElement("div");div.className="alert";
@@ -163,8 +171,8 @@ $("pushOff").onclick=async()=>{const reg=await navigator.serviceWorker.ready;con
 
 async function show(){const t=st.get("ah_at");const c=t&&claims(t);$("out").hidden=Boolean(c);$("in").hidden=!c;$("who").hidden=!c;
  if(!c)return;$("whoText").textContent=(c.wallet?c.wallet.slice(0,4)+"…"+c.wallet.slice(-4):"")+(c.verified?" · signed":" · watch-only");
- $("aStock").innerHTML=CFG.universe.map(u=>"<option value='"+u.ticker+"'>"+escH(u.name.replace(/^the /,""))+" ("+u.token+")</option>").join("");
- await Promise.all([loadStatus(),loadMovers(),loadPortfolio(),loadAlerts(),loadTrade(),pushState()]).catch(()=>{});
+ const nm=u=>u.name.replace(/^the /,"");const opts=[...CFG.universe].sort((a,b)=>nm(a).localeCompare(nm(b))).map(u=>"<option value='"+u.ticker+"'>"+escH(nm(u))+" ("+u.token+")</option>").join("");$("aStock").innerHTML=opts;$("wStock").innerHTML=opts;
+ await Promise.all([loadStatus(),loadMovers(),loadPortfolio(),loadWatch(),loadAlerts(),loadTrade(),pushState()]).catch(()=>{});
  const deep=location.hash.slice(1).toUpperCase();if(deep){const b=document.querySelector(".rowbtn[data-ticker='"+deep+"']");if(b){b.click();b.scrollIntoView({block:"center"})}}}
 $("signin").onclick=signin;$("signout").onclick=signout;
 finishSignin().then(show);`;

@@ -135,6 +135,17 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "trade_status", args: code ? { code } : {} };
   }
+  if (/\b(watch ?list|watching)\b/.test(t) && /\b(how|what)\b/.test(t) && !/\b(add|put|remove|take|drop|stop)\b/.test(t)) {
+    return { tool: "my_watchlist", args: {} };
+  }
+  if (/\b(stop watching|unwatch)\b/.test(t) || (/\b(remove|take|drop|delete)\b/.test(t) && /\bwatch ?list\b/.test(t))) {
+    const names = t.replace(/\b(stop watching|unwatch|remove|take|drop|delete|from|off|my|the|watch ?list|please)\b/g, " ");
+    return { tool: "edit_watchlist", args: { remove: splitNames(names) } };
+  }
+  if (/^(please )?(watch|follow)\b/.test(t) || (/\b(add|put)\b/.test(t) && /\bwatch ?list\b/.test(t))) {
+    const names = t.replace(/\b(watch|follow|add|put|to|on|onto|my|the|watch ?list|please|for me)\b/g, " ");
+    return { tool: "edit_watchlist", args: { add: splitNames(names) } };
+  }
   if (/\b(cancel|forget|scrap|drop)\b.*\b(order|trade|buy|sell|purchase)\b/.test(t)) {
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "cancel_trade", args: code ? { code } : {} };
@@ -182,6 +193,15 @@ export function route(utterance: string): { tool: string; args: Record<string, u
   }
   if (/\b(how('s| is)|what('s| is)|check|price|trading|rich|cheap|doing)\b/.test(t)) return { tool: "check_stock", args: { stock: stockIn(t) } };
   return null;
+}
+
+/** "Palantir, AMD and Intel" → each name, resolved where possible. */
+function splitNames(text: string): string[] {
+  return text
+    .split(/,|\band\b|&/)
+    .map((x) => x.replace(/[.!?]/g, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .map((x) => resolveSymbol(x)?.ticker ?? x);
 }
 
 /** Questions about the concepts, rather than about a price. */

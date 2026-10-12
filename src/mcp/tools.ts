@@ -23,6 +23,7 @@ import { recordToolTime } from "../http/stats.js";
 import { LISTINGS, listingByTicker, resolveSymbol } from "../market/universe.js";
 import { getMarketSession } from "../market/session.js";
 import { rankByGap, readGap, NOISE_FLOOR_BPS, type GapReading } from "../market/gap.js";
+import { MAX_WATCHED, editWatchlist, getWatchlist } from "../market/watchlist.js";
 import { aroundTime, capitalise, gapSentence, move, pct, sessionSentence, usd, verdictSentence, nextOpenPhrase, whenSpoken } from "../market/speech.js";
 import { PriceSourceError, type Board } from "../market/prices.js";
 import { alertNews, isPriceAlert, listAlerts, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
@@ -421,7 +422,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       _meta: toolUiMeta("overnight_brief"),
       title: "What moved while the market was closed",
       description:
-        "A short spoken briefing: whether the market is open, how the user's own positions moved (when a wallet is linked), which tokenized stocks have moved most against their real share price (since the last close when the market is shut), and any of the user's alerts that have triggered. Use for 'what happened overnight?', 'how are stocks doing?', 'anything I should know?', 'morning briefing'.",
+        "A short spoken briefing: whether the market is open, how the user's own positions moved (when a wallet is linked), how the names on their watchlist moved, which tokenized stocks have moved most against their real share price (since the last close when the market is shut), and any of the user's alerts that have triggered. Use for 'what happened overnight?', 'how are stocks doing?', 'anything I should know?', 'morning briefing'.",
       inputSchema: {
         count: z.number().int().min(1).max(5).optional().describe("How many movers to read out. Default 3."),
       },
@@ -429,6 +430,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         dataSource: z.enum(["jupiter", "sample"]),
         marketPhase: z.string(),
         movers: z.array(z.object(readingShape)),
+        watchlist: z.array(z.object(readingShape)).describe("Watched names that moved beyond noise, biggest first."),
         portfolio: z
           .object({ totalUsd: z.number(), changeUsd: z.number(), leader: z.string().nullable() })
           .nullable()
@@ -491,17 +493,34 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           const since = session.isRegularHours ? "against live share prices" : `since ${mine.positions[0].reading.referenceLabel}`;
           parts.push(`Your ${n === 1 ? "position is" : `${n} positions are`} ${mine.change > 0 ? "up" : "down"} ${usd(Math.abs(mine.change))} ${since}${lead}.`);
         }
+        // Then the names they follow, loudest first; quiet ones are skipped, not read out.
+        const said = new Set(news.map((n) => n.reading.ticker));
+        const watched = new Set(await getWatchlist(svc.store, caller.sub));
+        const watchMoves = rankByGap(readings.filter((r) => watched.has(r.ticker) && !said.has(r.ticker))).filter(
+          (r) => r.gapBps !== null && Math.abs(r.gapBps) >= NOISE_FLOOR_BPS && (r.kind === "overnight_move" || r.kind === "live_gap"),
+        );
+        if (watched.size > 0) {
+          const spoken = watchMoves.slice(0, 4);
+          parts.push(
+            spoken.length === 0
+              ? "Your watchlist is quiet."
+              : `On your watchlist: ${listPhrase(spoken.map(shortMove))}${watchMoves.length > 4 ? `, and ${watchMoves.length - 4} more moving` : ""}.`,
+          );
+          for (const r of spoken) said.add(r.ticker);
+        }
+        const fresh = movers.filter((r) => !said.has(r.ticker));
         if (movers.length === 0) {
           parts.push("Tokenized stocks are all within normal noise of their share prices.");
-        } else {
+        } else if (fresh.length > 0) {
           const against = session.isRegularHours ? "Biggest gaps against live share prices" : `Biggest moves since ${movers[0].referenceLabel}`;
-          parts.push(`${against}: ${listPhrase(movers.map(shortMove))}.`);
+          parts.push(`${watched.size > 0 ? `Across the market, ${against.charAt(0).toLowerCase()}${against.slice(1)}` : against}: ${listPhrase(fresh.map(shortMove))}.`);
         }
 
         return say(parts.join(" "), {
           dataSource: board.source,
           marketPhase: session.phase,
           movers: movers.map(readingOut),
+          watchlist: watchMoves.map(readingOut),
           portfolio: mine && mine.positions.length > 0 ? { totalUsd: Math.round(mine.total * 100) / 100, changeUsd: Math.round(mine.change * 100) / 100, leader: mine.biggest?.ticker ?? null } : null,
           alertsTriggered: news.map((n) => ({
             ticker: n.alert.ticker,
@@ -683,6 +702,72 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           direction: null,
           alertCount: list.length,
         });
+      }),
+  );
+
+  server.registerTool(
+    "edit_watchlist",
+    {
+      title: "Add to or remove from my watchlist",
+      description: `Adds stocks to, or removes them from, the user's watchlist (up to ${MAX_WATCHED} names). The morning briefing leads with watched names that moved. Use for 'add Netflix to my watchlist', 'watch Palantir and AMD', 'stop watching Intel'.`,
+      inputSchema: {
+        add: z.array(z.string().min(1)).max(10).optional().describe("Names or tickers to start watching, as the user said them."),
+        remove: z.array(z.string().min(1)).max(20).optional().describe("Names or tickers to stop watching."),
+      },
+      outputSchema: { added: z.array(z.string()), removed: z.array(z.string()), unknown: z.array(z.string()), watching: z.array(z.string()), max: z.number() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ add, remove }) =>
+      guard(async () => {
+        const unknown: string[] = [];
+        const resolve = (said: string[] = []) =>
+          said.flatMap((x) => {
+            const l = resolveSymbol(x);
+            if (!l) unknown.push(x);
+            return l ? [l.ticker] : [];
+          });
+        const result = await editWatchlist(svc.store, caller.sub, { add: resolve(add), remove: resolve(remove) });
+        const name = (t: string) => listingByTicker(t)?.spoken ?? t;
+        const parts: string[] = [];
+        if (result.added.length) parts.push(`Added ${listPhrase(result.added.map(name))}.`);
+        if (result.removed.length) parts.push(`Stopped watching ${listPhrase(result.removed.map(name))}.`);
+        if (result.full.length) parts.push(`Your watchlist is full at ${MAX_WATCHED}, so I couldn't add ${listPhrase(result.full.map(name))}.`);
+        if (unknown.length) parts.push(`I don't have a tokenized stock for ${listPhrase(unknown.map((u) => `"${u}"`))}.`);
+        if (!parts.length) parts.push(result.list.length ? "Your watchlist already looks like that." : "Your watchlist is empty.");
+        parts.push(result.list.length ? `You're watching ${result.list.length === 1 ? "one name" : `${result.list.length} names`}.` : "");
+        return say(parts.filter(Boolean).join(" "), { added: result.added, removed: result.removed, unknown, watching: result.list, max: MAX_WATCHED });
+      }),
+  );
+
+  server.registerTool(
+    "my_watchlist",
+    {
+      title: "How my watchlist is doing",
+      description: "Reads out each name on the user's watchlist with its move against the share (since the last close while the market is shut). Use for 'how's my watchlist?', 'what am I watching?'.",
+      inputSchema: {},
+      outputSchema: { dataSource: z.enum(["jupiter", "sample"]), names: z.array(z.object(readingShape)), max: z.number() },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async () =>
+      guard(async () => {
+        const watched = await getWatchlist(svc.store, caller.sub);
+        if (watched.length === 0) {
+          return say("You're not watching anything yet. You can say, add Netflix to my watchlist.", { dataSource: svc.sample ? "sample" : "jupiter", names: [], max: MAX_WATCHED });
+        }
+        const { board, readings } = await allReadings();
+        const byTicker = new Map(readings.map((r) => [r.ticker, r]));
+        const rows = watched.map((t) => byTicker.get(t)).filter((r): r is GapReading => r !== undefined);
+        const unpriced = watched.filter((t) => !byTicker.has(t)).map((t) => listingByTicker(t)?.spoken ?? t);
+        const ranked = rankByGap(rows);
+        const phrase = (r: GapReading) => (r.gapBps === null || Math.abs(r.gapBps) < NOISE_FLOOR_BPS ? `${r.spoken} flat` : shortMove(r));
+        const since = ranked.find((r) => r.kind === "overnight_move" || r.kind === "in_line")?.referenceLabel;
+        const text = [
+          sampleNote(board) + `You're watching ${watched.length === 1 ? "one name" : `${watched.length} names`}${since ? `. Since ${since}` : ""}: ${listPhrase(ranked.map(phrase))}.`,
+          unpriced.length ? `I don't have a price for ${listPhrase(unpriced)} right now.` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return say(text, { dataSource: board.source, names: ranked.map(readingOut), max: MAX_WATCHED });
       }),
   );
 
