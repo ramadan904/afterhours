@@ -57,7 +57,7 @@ by voice:
 
 ## How it works
 
-- **MCP server** (TypeScript, official MCP SDK): stateless Streamable HTTP on `/mcp`, protocol 2025-11-25, 28 tools
+- **MCP server** (TypeScript, official MCP SDK): stateless Streamable HTTP on `/mcp`, protocol 2025-11-25, 34 tools
   with `outputSchema`s and truthful annotations (reads are `readOnlyHint`, removing an alert is `destructiveHint`, and
   proposing a trade is explicitly *not* destructive because it moves nothing). Each result carries a sentence written
   to be spoken plus structured data for a screen.

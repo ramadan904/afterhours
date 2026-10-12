@@ -29,7 +29,7 @@ keys. A trade only happens when you open the confirm page, see a fresh quote, an
 
 | | |
 | --- | --- |
-| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 35 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
+| **MCP server** | `POST /mcp`: Streamable HTTP, MCP **2025-11-25**, stateless, JSON responses. 34 tools, each with an `outputSchema` and truthful `readOnlyHint` / `destructiveHint` annotations. |
 | **Account linking** | OAuth 2.1 authorization code + **PKCE (S256)**. RFC 9728 protected-resource metadata, RFC 8414 server metadata, `resource` bound to the MCP URI, rotating refresh tokens, and a bare `401` for unauthenticated MCP calls, all as Alexa+'s MCP onboarding asks. You link a **Solana wallet by signing a message** (free, can't move funds), or link a watch-only address. |
 | **68 stocks and funds** | Tesla to Coca-Cola, the S&P 500 to gold. Every mint is verified before it ships (exact registry symbol, Backed's `Xs` prefix, Token-2022 owner, matching decimals, exactly one candidate) by `scripts/discover-universe.ts` in CI. Each name answers to the ways it's said ("coke", "J P Morgan", "the Russell"). |
 | **Live data** | Token and share prices from Jupiter (one keyless call returns both legs), balances from Solana mainnet RPC. Prices are served from a stale-while-revalidate cache, so tool calls stay well inside Alexa+'s **500 ms** budget. |
@@ -168,7 +168,7 @@ overnight tape: set `CRON_SECRET`, then add repository secrets `AFTERHOURS_URL` 
 ```
 
 - `src/market/`: universe and voice aliases, NYSE calendar and sessions, gap logic, speech phrasing, price sources and cache
-- `src/mcp/tools.ts`: the 35 tools · `src/mcp/apps.ts`: MCP Apps cards
+- `src/mcp/tools.ts`: the 34 tools · `src/mcp/apps.ts`: MCP Apps cards
 - `src/market/tape.ts`: the overnight tape · `src/market/alerts.ts`: alerts that fire with timestamps
 - `src/auth/`: OAuth 2.1 server, signed tokens, wallet signature verification
 - `src/chain/`: Solana balances, trade proposals, Jupiter swap client
