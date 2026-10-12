@@ -35,7 +35,8 @@ import { armIntent, createIntent, getIntent, intentByCode, maxTradeUsd, recently
 import { readOpens, sampleOpens, trackRecord, type OpenRecord } from "../market/history.js";
 import { EASTERN, getZone, resolveZone, setZone, zoneName, type Zone } from "../market/zones.js";
 import { fail, say, type Result } from "./result.js";
-import { registerProTools } from "./tools-pro.js";
+import { pinRefusal, registerProTools } from "./tools-pro.js";
+import { checkPin } from "../auth/pin.js";
 import { getGuardrails, inWindow, nextLocal, recordSpend, spentToday } from "../chain/guardrails.js";
 import { zoneParts } from "../market/zones.js";
 import { impactAt } from "../chain/depth.js";
@@ -897,15 +898,18 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           .positive()
           .optional()
           .describe("Only for 'if it drops below / rises above X': the token price in dollars that triggers the trade."),
+        pin: z.string().optional().describe("The user's spoken trade PIN, if they've set one. If the result says a PIN is needed, ask for it and call again. Never repeat it back."),
       },
       outputSchema: intentShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async ({ stock, side, amount_usd, trigger_price }) =>
+    async ({ stock, side, amount_usd, trigger_price, pin }) =>
       guard(async () => {
         const listing = resolveSymbol(stock);
         if (!listing) return unknownStock(stock);
         if (!caller.wallet) return fail("No wallet is linked yet. Link Afterhours in the Alexa app before trading.");
+        const pinCheck = await checkPin(svc.store, caller.sub, pin, svc.now());
+        if (!pinCheck.ok) return fail(pinRefusal(pinCheck, await getZone(svc.store, caller.sub)));
         const cap = maxTradeUsd();
         if (amount_usd > cap) return fail(`By voice I can prepare trades up to ${usd(cap)}. Try a smaller amount.`);
         if (amount_usd < 1) return fail("The smallest trade I can prepare is $1.");

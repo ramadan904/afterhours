@@ -135,6 +135,12 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "trade_status", args: code ? { code } : {} };
   }
+  if (/\b(trade |voice )?pin\b/.test(t) && /\b(set|add|change|new|remove|delete|turn off|do i have|have a)\b/.test(t)) {
+    if (/\b(remove|delete|turn off)\b/.test(t)) return { tool: "set_trade_pin", args: { remove: true } };
+    if (/\b(do i have|have a)\b/.test(t) && !/\bset\b/.test(t)) return { tool: "set_trade_pin", args: {} };
+    const digits = /(\d[\d\s-]{2,})/.exec(t)?.[1]?.trim();
+    return { tool: "set_trade_pin", args: digits ? { new_pin: digits } : {} };
+  }
   if (/\b(spending|daily) limit\b|\bspend more than\b|\blimit me\b/.test(t)) {
     if (/\b(remove|drop|get rid of|no)\b.*\blimit\b/.test(t)) return { tool: "set_spending_limit", args: { remove: true } };
     const usd = amount(t);
@@ -261,6 +267,18 @@ export function routeInContext(utterance: string, previous: Route | null): Route
   const t = utterance.toLowerCase().replace(/^alexa,?\s*/, "").trim();
   const prevStock = typeof previous?.args.stock === "string" ? (previous.args.stock as string) : null;
   const named = resolveSymbol(t);
+
+  // A PIN, said after a trade asked for one: "4 7 1 9", "my pin is four seven one nine".
+  const pinWords = t.replace(/^(my )?(trade )?pin( is)?\s*/, "");
+  if (
+    previous &&
+    ["propose_trade", "recurring_buy", "set_trade_pin"].includes(previous.tool) &&
+    /^(?:\d|zero|oh|one|two|three|four|five|six|seven|eight|nine)(?:[\s,.-]*(?:\d|zero|oh|one|two|three|four|five|six|seven|eight|nine))*$/.test(pinWords)
+  ) {
+    // Trades take it as `pin`; changing or removing a PIN asks for the current one first.
+    const field = previous.tool !== "set_trade_pin" ? "pin" : previous.args.new_pin || previous.args.remove ? "current_pin" : "new_pin";
+    return { tool: previous.tool, args: { ...previous.args, [field]: pinWords } };
+  }
 
   // "make it 50", "actually 30 dollars", "make that a hundred"
   if (previous?.tool === "propose_trade" && /\b(make (it|that)|actually|instead|change (it|that) to)\b/.test(t)) {

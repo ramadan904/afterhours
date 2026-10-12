@@ -25,6 +25,7 @@ import { listingByTicker, resolveSymbol } from "../market/universe.js";
 import { listSubscriptions } from "../notify/push.js";
 import { readBasis } from "../chain/basis.js";
 import { depthLadder, sizeWithin } from "../chain/depth.js";
+import { checkPin, hasPin, normalisePin, removePin, setPin, validPin, type PinCheck } from "../auth/pin.js";
 
 /** Like tools.ts's `within`: an optional extra must never cost the voice turn its budget. */
 async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
@@ -39,6 +40,13 @@ async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
 const possessive = (name: string) => (name.endsWith("s") ? `${name}'` : `${name}'s`);
 const listJoin = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 const pctOf = (x: number) => `${(Math.abs(x) * 100).toFixed(1)} percent`;
+
+/** What to say when a PIN check fails. Never repeats the PIN. */
+export function pinRefusal(check: Exclude<PinCheck, { ok: true }>, zone: Parameters<typeof clockTime>[1]): string {
+  if (check.reason === "missing") return "You've set a trade PIN. What is it?";
+  if (check.reason === "locked") return `Trading by voice is locked until ${clockTime(check.lockedUntil!, zone)} after too many wrong PINs. Nothing was prepared.`;
+  return `That PIN isn't right. ${check.triesLeft === 1 ? "One more wrong try" : `${check.triesLeft} more wrong tries`} and trading by voice locks for an hour.`;
+}
 
 export interface ToolKit {
   guard: (fn: () => Promise<Result>) => Promise<Result>;
@@ -190,12 +198,15 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         cadence: z.enum(["daily", "weekly", "monthly"]).describe("How often."),
         day: z.string().optional().describe("Weekly: the weekday ('Monday'). Monthly: day of the month ('1', '15'). Default Monday or the 1st."),
         time: z.string().optional().describe("Time of day as said, e.g. '9', '8:30 am'. Default 9 a.m."),
+        pin: z.string().optional().describe("The user's trade PIN, if they have one. Ask for it when told it's needed."),
       },
       outputSchema: { plan: planOut, plans: z.number(), max: z.number(), devices: z.number() },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ stock, amount_usd, cadence, day, time }) =>
+    async ({ stock, amount_usd, cadence, day, time, pin }) =>
       guard(async () => {
+        const pinCheck = await checkPin(svc.store, caller.sub, pin, svc.now());
+        if (!pinCheck.ok) return fail(pinRefusal(pinCheck, await getZone(svc.store, caller.sub)));
         const listing = resolveSymbol(stock);
         if (!listing) return fail(`I don't have a tokenized stock for "${stock}".`);
         if (!caller.wallet) return fail("No wallet is linked yet. Link Afterhours in the Alexa app before setting up buys.");
@@ -437,6 +448,45 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
             under1PercentUsd: fine,
           },
         );
+      }),
+  );
+
+  server.registerTool(
+    "set_trade_pin",
+    {
+      title: "Set, change or remove a spoken trade PIN",
+      description:
+        "Sets a 4 to 6 digit PIN that must be said before Afterhours prepares any trade or recurring buy, like a voice purchasing code: so a TV, a guest or a child can't get trades proposed. Changing or removing it needs the current PIN. Never repeat a PIN back to the user. Use for 'set a trade PIN', 'change my PIN', 'remove my trade PIN', 'do I have a PIN?'. Call with no arguments to check whether one is set.",
+      inputSchema: {
+        new_pin: z.string().optional().describe("The new PIN as said, digits or words."),
+        current_pin: z.string().optional().describe("The current PIN, needed to change or remove one."),
+        remove: z.boolean().optional(),
+      },
+      outputSchema: { pinSet: z.boolean() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ new_pin, current_pin, remove }) =>
+      guard(async () => {
+        const now = svc.now();
+        const had = await hasPin(svc.store, caller.sub);
+        if (!new_pin && !remove) {
+          return say(had ? "Yes, trades need your PIN before I prepare them." : "You don't have a trade PIN. You can say, set a trade PIN.", { pinSet: had });
+        }
+        if (had) {
+          const check = await checkPin(svc.store, caller.sub, current_pin, now);
+          if (!check.ok) {
+            return fail(check.reason === "missing" ? "To change or remove your PIN, I need your current one first." : pinRefusal(check, await getZone(svc.store, caller.sub)));
+          }
+        }
+        if (remove) {
+          await removePin(svc.store, caller.sub);
+          return say(had ? "Your trade PIN is removed." : "You didn't have a trade PIN.", { pinSet: false });
+        }
+        const pin = normalisePin(new_pin!);
+        if (!validPin(pin)) return fail("A trade PIN is 4 to 6 digits.");
+        if (/^(\d)\1+$/.test(pin) || "0123456789".includes(pin) || "9876543210".includes(pin)) return fail("That PIN is too easy to guess. Pick digits that aren't all the same or in a row.");
+        await setPin(svc.store, caller.sub, pin);
+        return say(`Done. ${had ? "Your new PIN is set." : "From now on I'll ask for your PIN before preparing a trade."} I won't say it back.`, { pinSet: true });
       }),
   );
 }
