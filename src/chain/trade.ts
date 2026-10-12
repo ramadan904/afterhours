@@ -122,7 +122,14 @@ export async function createIntent(
   };
   await store.set(`intent:${id}`, intent, retention(intent, now));
   await store.set(`latest-intent:${input.sub}`, id, retention(intent, now));
+  await indexIntent(store, input.sub, id);
   return intent;
+}
+
+/** Every proposal an account has open or recent, so deleting its data can cancel them all. */
+async function indexIntent(store: Store, sub: string, id: string): Promise<void> {
+  const ids = (await store.get<string[]>(`intents:${sub}`)) ?? [];
+  await store.set(`intents:${sub}`, [...ids, id].slice(-200), 8 * 86_400);
 }
 
 /**
@@ -150,6 +157,7 @@ export async function armIntent(
   await store.set(`intent:${intent.id}`, intent, retention(intent, now));
   await store.set(`latest-intent:${input.sub}`, intent.id, retention(intent, now));
   await store.set(ARMED_INDEX, [...index, intent.id]);
+  await indexIntent(store, input.sub, intent.id);
   return intent;
 }
 

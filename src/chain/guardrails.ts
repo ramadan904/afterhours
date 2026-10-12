@@ -30,19 +30,28 @@ export interface Guardrails {
   pending?: { dailyLimitUsd: number | null; effectiveAt: number };
   /** Local minutes after midnight; null when sleep mode is off. */
   sleep: { from: number; to: number } | null;
+  /** Turning sleep mode off, or changing its hours, waits out the cooling-off period too. */
+  pendingSleep?: { sleep: { from: number; to: number } | null; effectiveAt: number };
 }
 
 const key = (sub: string) => `guardrails:${sub}`;
 const ledger = (sub: string, date: string) => `spend:${sub}:${date}`;
 
-/** Current rules, with a pending change applied once its time has come. */
+/** Current rules, with pending changes applied once their time has come. */
 export async function getGuardrails(store: Store, sub: string, now: number): Promise<Guardrails> {
   const g = (await store.get<Guardrails>(key(sub))) ?? { dailyLimitUsd: null, sleep: null };
+  let changed = false;
   if (g.pending && g.pending.effectiveAt <= now) {
-    const applied: Guardrails = { dailyLimitUsd: g.pending.dailyLimitUsd, sleep: g.sleep };
-    await store.set(key(sub), applied);
-    return applied;
+    g.dailyLimitUsd = g.pending.dailyLimitUsd;
+    delete g.pending;
+    changed = true;
   }
+  if (g.pendingSleep && g.pendingSleep.effectiveAt <= now) {
+    g.sleep = g.pendingSleep.sleep;
+    delete g.pendingSleep;
+    changed = true;
+  }
+  if (changed) await store.set(key(sub), g);
   return g;
 }
 
@@ -59,20 +68,53 @@ export async function setDailyLimit(
   const g = await getGuardrails(store, sub, now);
   const current = g.dailyLimitUsd;
   const tighter = limit !== null && (current === null || limit <= current);
+  const { pending: _p, ...rest } = g;
   const next: Guardrails = tighter
-    ? { dailyLimitUsd: limit, sleep: g.sleep }
+    ? { ...rest, dailyLimitUsd: limit }
     : current === null
-      ? { dailyLimitUsd: null, sleep: g.sleep } // removing a limit that doesn't exist
-      : { dailyLimitUsd: current, sleep: g.sleep, pending: { dailyLimitUsd: limit, effectiveAt: now + COOLING_OFF_MS } };
+      ? { ...rest, dailyLimitUsd: null } // removing a limit that doesn't exist
+      : { ...rest, dailyLimitUsd: current, pending: { dailyLimitUsd: limit, effectiveAt: now + COOLING_OFF_MS } };
   await store.set(key(sub), next);
   return { effective: next.pending ? "later" : "now", effectiveAt: next.pending?.effectiveAt ?? now, guardrails: next };
 }
 
-export async function setSleep(store: Store, sub: string, sleep: { from: number; to: number } | null, now: number): Promise<Guardrails> {
+/**
+ * Sets, changes or turns off sleep mode. Turning it on applies at once;
+ * turning it off or changing its hours waits out the cooling-off period, so
+ * the 2 a.m. self can't switch off what the daytime self switched on.
+ */
+export async function setSleep(
+  store: Store,
+  sub: string,
+  sleep: { from: number; to: number } | null,
+  now: number,
+): Promise<{ effective: "now" | "later"; effectiveAt: number; guardrails: Guardrails }> {
   const g = await getGuardrails(store, sub, now);
-  const next = { ...g, sleep };
+  const { pendingSleep: _p, ...rest } = g;
+  const same = JSON.stringify(g.sleep) === JSON.stringify(sleep);
+  const next: Guardrails = !g.sleep || same ? { ...rest, sleep } : { ...rest, pendingSleep: { sleep, effectiveAt: now + COOLING_OFF_MS } };
   await store.set(key(sub), next);
-  return next;
+  return { effective: next.pendingSleep ? "later" : "now", effectiveAt: next.pendingSleep?.effectiveAt ?? now, guardrails: next };
+}
+
+/**
+ * Starts removing every guardrail through the usual cooling-off period (used
+ * when an account deletes its data): the protections stay for a day, then go.
+ * Returns true when there was anything to remove.
+ */
+export async function retireGuardrails(store: Store, sub: string, now: number): Promise<boolean> {
+  const g = await getGuardrails(store, sub, now);
+  if (g.dailyLimitUsd === null && !g.sleep) {
+    await store.del(key(sub));
+    return false;
+  }
+  const at = now + COOLING_OFF_MS;
+  await store.set(
+    key(sub),
+    { ...g, pending: g.dailyLimitUsd === null ? undefined : { dailyLimitUsd: null, effectiveAt: at }, pendingSleep: g.sleep ? { sleep: null, effectiveAt: at } : undefined },
+    Math.ceil((COOLING_OFF_MS + 86_400_000) / 1000),
+  );
+  return true;
 }
 
 /** Whether local minutes-after-midnight fall in a window that may wrap midnight. */

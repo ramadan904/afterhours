@@ -169,8 +169,12 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
           );
         }
         if (on === false) {
-          await setSleep(svc.store, caller.sub, null, now);
-          return say("Sleep mode is off. Trades are prepared whenever you ask.", data(null));
+          if (!g.sleep) return say("Sleep mode is already off.", data(null));
+          const r = await setSleep(svc.store, caller.sub, null, now);
+          return say(
+            `OK. Sleep mode turns off ${when(r.effectiveAt, now, zone)} ${zoneName(zone)}, ${COOLING_OFF_MS / 3600_000} hours from now; until then it stays on. The wait is on purpose.`,
+            data(g.sleep),
+          );
         }
         const night = (said: string | undefined, fallback: number) => {
           if (said === undefined) return fallback;
@@ -184,7 +188,13 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         if (!Number.isFinite(start) || !Number.isFinite(end)) return fail("I didn't catch those times. Try something like from 11 p.m. until 7 a.m.");
         if (start === end) return fail("Sleep mode needs a start and an end that differ.");
         const sleep = { from: start, to: end };
-        await setSleep(svc.store, caller.sub, sleep, now);
+        const r = await setSleep(svc.store, caller.sub, sleep, now);
+        if (r.effective === "later") {
+          return say(
+            `OK. Your new sleep hours, ${spokenTime(start)} to ${spokenTime(end)}, start ${when(r.effectiveAt, now, zone)} ${zoneName(zone)}; until then the current ones stay. Changes that loosen sleep mode wait a day, on purpose.`,
+            data(g.sleep),
+          );
+        }
         return say(
           `Sleep mode is on. Between ${spokenTime(start)} and ${spokenTime(end)} ${zoneName(zone)}, I'll set trades aside until morning instead of preparing them, and send them to your phone when you're up.`,
           data(sleep),
@@ -780,9 +790,11 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         }
         const pinCheck = await checkPin(svc.store, caller.sub, pin, svc.now());
         if (!pinCheck.ok) return fail(pinCheck.reason === "missing" ? "Your account has a trade PIN. Say it to confirm deleting everything." : pinRefusal(pinCheck, await getZone(svc.store, caller.sub)));
-        const records = await deleteData(svc, caller.sub);
+        const g = await getGuardrails(svc.store, caller.sub, svc.now());
+        const guarded = g.dailyLimitUsd !== null || Boolean(g.sleep);
+        const records = await deleteData(svc, caller.sub, caller.wallet);
         return say(
-          "Done. Everything Afterhours kept for you is deleted, and anything waiting was cancelled. Your wallet is untouched. To stop Alexa using Afterhours at all, unlink it in the Alexa app.",
+          `Done. Everything Afterhours kept for you is deleted, anything waiting was cancelled, and this link is ending.${guarded ? " Your spending limit and sleep mode stay in force for 24 hours, then they go too." : ""} Your wallet is untouched. To link again, use the Alexa app.`,
           { deleted: true, records },
         );
       }),

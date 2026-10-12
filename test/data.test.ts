@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BASE, harness, linkWallet, mcp } from "./helpers.js";
+import { BASE, SUNDAY, exchange, harness, linkWallet, mcp } from "./helpers.js";
 import { route } from "../src/sim/planner.js";
 
 async function setup() {
@@ -39,12 +39,40 @@ describe("your data", () => {
     expect((await session.call("delete_my_data", { confirm: true })).text).toBe("Your account has a trade PIN. Say it to confirm deleting everything.");
     const done = await session.call("delete_my_data", { confirm: true, pin: "4719" });
     expect(done.text).toMatch(/^Done\. Everything Afterhours kept for you is deleted/);
+    expect(done.text).toContain("Your spending limit and sleep mode stay in force for 24 hours, then they go too.");
+    // What's left: guardrails on their way out, nothing else.
     const left = await (await get("/api/export/data.json")).json();
-    expect(Object.keys(left).sort()).toEqual(["account", "exportedAt"]);
+    expect(Object.keys(left).sort()).toEqual(["account", "exportedAt", "guardrails"]);
+    expect(left.guardrails).toMatchObject({ dailyLimitUsd: 200, pending: { dailyLimitUsd: null } });
     expect((await h.svc.store.get<string[]>("alert-accounts")) ?? []).not.toContain(sub);
     expect((await h.svc.store.get<string[]>("recurring:index")) ?? []).not.toContain(sub);
     const armed = (await h.svc.store.get<string[]>("armed-intents")) ?? [];
     for (const id of armed) expect((await h.svc.store.get<{ status: string; sub: string }>(`intent:${id}`))?.status).not.toBe("armed");
+  });
+
+  it("cancels every proposal still waiting, and ends the link's refresh tokens", async () => {
+    const { h, session } = await setup();
+    const a = (await session.call("propose_trade", { stock: "Tesla", side: "buy", amount_usd: 20 })).structured as { code: string };
+    const b = (await session.call("propose_trade", { stock: "Apple", side: "buy", amount_usd: 20 })).structured as { code: string };
+    await session.call("delete_my_data", { confirm: true });
+    for (const code of [a.code, b.code]) {
+      const view = await (await h.app(new Request(`${BASE}/api/trade?code=${code}`))).json();
+      expect(view.status).toBe("cancelled");
+    }
+  });
+
+  it("signs the old link out: its refresh token stops working, a new link works", async () => {
+    let now = SUNDAY;
+    const h = harness({ now: () => now });
+    const { tokens } = await linkWallet(h.app);
+    const session = await mcp(h, tokens.access_token);
+    await session.call("delete_my_data", { confirm: true });
+    now += 60_000;
+    const refused = await exchange(h.app, { grant_type: "refresh_token", refresh_token: tokens.refresh_token });
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error_description).toBe("This link was ended. Link the account again.");
+    const again = await linkWallet(h.app);
+    expect((await exchange(h.app, { grant_type: "refresh_token", refresh_token: again.tokens.refresh_token })).status).toBe(200);
   });
 
   it("routes the phrases", () => {

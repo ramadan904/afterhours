@@ -71,6 +71,8 @@ interface RefreshRecord {
   sub: string;
   wallet: string | null;
   verified: boolean;
+  /** When the account was linked (unix ms); refreshes from before a revocation are refused. */
+  issuedAt?: number;
 }
 
 export const mcpResource = (svc: Services) => `${svc.baseUrl}/mcp`;
@@ -359,7 +361,7 @@ export async function token(svc: Services, request: Request): Promise<Response> 
     if (resource && resource !== rec.resource) return oauthError("invalid_target", "resource does not match");
 
     const refresh = randomToken(32);
-    const refreshRec: RefreshRecord = { clientId: rec.clientId, scope: rec.scope, resource: rec.resource, sub: rec.sub, wallet: rec.wallet, verified: rec.verified };
+    const refreshRec: RefreshRecord = { clientId: rec.clientId, scope: rec.scope, resource: rec.resource, sub: rec.sub, wallet: rec.wallet, verified: rec.verified, issuedAt: svc.now() };
     await svc.store.set(`refresh:${refresh}`, refreshRec, REFRESH_TOKEN_TTL);
     return issue(svc, refreshRec, refresh);
   }
@@ -369,6 +371,9 @@ export async function token(svc: Services, request: Request): Promise<Response> 
     // Rotation: each refresh token is single-use, as OAuth 2.1 asks of public clients.
     const rec = await svc.store.take<RefreshRecord>(`refresh:${old}`);
     if (!rec || rec.clientId !== client.client_id) return oauthError("invalid_grant", "Refresh token is invalid or expired");
+    // An account that deleted its data signed out every link made before it.
+    const revokedAt = await svc.store.get<number>(`revoked:${rec.sub}`);
+    if (revokedAt && (rec.issuedAt ?? 0) <= revokedAt) return oauthError("invalid_grant", "This link was ended. Link the account again.");
     const refresh = randomToken(32);
     await svc.store.set(`refresh:${refresh}`, rec, REFRESH_TOKEN_TTL);
     return issue(svc, rec, refresh);

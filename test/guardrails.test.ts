@@ -97,8 +97,12 @@ describe("sleep mode", () => {
     await session.call("set_sleep_mode", { on: true, from: "midnight", until: "6:30 am" });
     expect((await session.call("set_sleep_mode", {})).text).toBe("Sleep mode is on, from midnight to 6:30 a.m. Eastern.");
     expect((await session.call("propose_trade", buy("Tesla", 50))).structured).toMatchObject({ status: "awaiting_signature" });
-    expect((await session.call("set_sleep_mode", { on: true, from: "11" })).structured).toMatchObject({ from: "23:00", until: "06:30" });
-    expect((await session.call("set_sleep_mode", { on: false })).structured).toMatchObject({ on: false });
+    // Loosening (new hours, or off) waits a day, on purpose.
+    const change = await session.call("set_sleep_mode", { on: true, from: "11" });
+    expect(change.text).toMatch(/^OK\. Your new sleep hours, 11 p\.m\. to 6:30 a\.m\., start tomorrow at 11:00 a\.m\. Eastern; until then the current ones stay\./);
+    expect(change.structured).toMatchObject({ from: "00:00", until: "06:30" });
+    const off = await session.call("set_sleep_mode", { on: false });
+    expect(off.text).toMatch(/^OK\. Sleep mode turns off tomorrow at 11:00 a\.m\. Eastern, 24 hours from now; until then it stays on\. The wait is on purpose\.$/);
   });
 });
 
