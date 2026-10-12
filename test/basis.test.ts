@@ -87,3 +87,37 @@ describe("my_returns", () => {
     );
   });
 });
+
+describe("indexing that survives a flaky RPC", () => {
+  it("stops at a failed fetch and picks up exactly there next time, losing nothing", async () => {
+    const { h, state } = liveHarness();
+    const { wallet } = await linkWallet(h.app);
+    const A = "a".repeat(88);
+    const B = "b".repeat(88);
+    state.transactions[A] = { payer: wallet.address, deltas: { [TSLA]: 1, [USDC.mint]: -300 } };
+    state.transactions[B] = { payer: wallet.address, deltas: { [TSLA]: 1, [USDC.mint]: -400 } };
+    const upstream = fakeUpstreams(state);
+    // The RPC rate-limits B's fetch once.
+    let tripped = false;
+    const flaky = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      if (body.method === "getTransaction" && body.params[0] === B && !tripped) {
+        tripped = true;
+        return new Response("rate limited", { status: 429 });
+      }
+      return upstream(input, init);
+    }) as typeof fetch;
+    const first = await indexWallet(h.svc, wallet.address, flaky);
+    expect(first.positions.TSLA).toMatchObject({ qty: 1, cost: 300 });
+    expect(first.lastSignature).toBe(A);
+    const second = await indexWallet(h.svc, wallet.address, flaky);
+    expect(second.positions.TSLA).toMatchObject({ qty: 2, cost: 700, buys: 2 });
+  });
+
+  it("doesn't credit a sale's whole price to the part of it history knows about", () => {
+    const p: Record<string, PositionBasis> = {};
+    applyDeltas(p, new Map([[TSLA, 2], [USDC.mint, -200]]));
+    applyDeltas(p, new Map([[TSLA, -10], [USDC.mint, 1000]])); // eight came from before the history read
+    expect(p.TSLA.realized).toBeCloseTo(0, 6);
+  });
+});

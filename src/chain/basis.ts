@@ -126,7 +126,8 @@ export function applyDeltas(positions: Record<string, PositionBasis>, deltas: Ma
       const share = p.qty > 0 ? sold / p.qty : 0;
       const coveredSold = p.coveredQty * share;
       const costOut = p.cost * share;
-      const gain = priced && coveredSold > 0 ? usdc * (coveredSold / sold) - costOut : null;
+      // The USDC was for everything that left (-d), not only the tokens history knows about.
+      const gain = priced && coveredSold > 0 ? usdc * (coveredSold / -d) - costOut : null;
       if (gain !== null) p.realized += gain;
       if (priced) p.sells += 1;
       rows.push({ ticker, kind: priced ? "sell" : "transfer_out", qty: -d, usdc: priced ? usdc : null, realized: gain === null ? null : Math.round(gain * 100) / 100 });
@@ -149,7 +150,8 @@ export async function indexWallet(svc: Services, wallet: string, fetchImpl: type
 
   const fresh: { signature: string; err: unknown; blockTime?: number | null }[] = [];
   let before: string | undefined;
-  for (let page = 0; page < (held ? 10 : FIRST_PASS_PAGES); page += 1) {
+  const pages = held ? 10 : FIRST_PASS_PAGES;
+  for (let page = 0; page < pages; page += 1) {
     const opts: Record<string, unknown> = { limit: PAGE, commitment: "confirmed" };
     if (before) opts.before = before;
     if (basis.lastSignature) opts.until = basis.lastSignature;
@@ -157,31 +159,45 @@ export async function indexWallet(svc: Services, wallet: string, fetchImpl: type
     fresh.push(...sigs);
     if (sigs.length < PAGE) break;
     before = sigs.at(-1)!.signature;
-    if (!held && page === FIRST_PASS_PAGES - 1) basis.truncated = true;
+    // More history than one pass reads: on the first pass that's older
+    // history; on a later one it's a gap since the last pass. Either way the
+    // answer must say it isn't complete.
+    if (page === pages - 1) basis.truncated = true;
   }
 
-  // Oldest first, so average cost accrues in order. A few at a time, to be
-  // gentle with public RPC.
-  const ordered = fresh.filter((s) => !s.err).reverse();
-  for (let i = 0; i < ordered.length; i += 4) {
+  // Oldest first, so average cost accrues in order, a few at a time to be
+  // gentle with public RPC. A fetch that fails (a 429, a timeout) stops the
+  // pass there, and the cursor only moves past what was actually read, so
+  // the next pass picks up exactly where this one stopped.
+  const ordered = [...fresh].reverse();
+  let processed = 0;
+  let cursor: string | null = null;
+  outer: for (let i = 0; i < ordered.length; i += 4) {
     const batch = ordered.slice(i, i + 4);
     const txs = await Promise.all(
       batch.map((s) =>
-        rpc<{ meta?: { err: unknown; preTokenBalances?: TokenBalance[]; postTokenBalances?: TokenBalance[] } | null }>("getTransaction", [
-          s.signature,
-          { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 },
-        ]).catch(() => null),
+        s.err
+          ? null
+          : rpc<{ meta?: { err: unknown; preTokenBalances?: TokenBalance[]; postTokenBalances?: TokenBalance[] } | null }>("getTransaction", [
+              s.signature,
+              { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 },
+            ]).catch(() => false as const),
       ),
     );
-    txs.forEach((tx, j) => {
-      if (!tx?.meta || tx.meta.err) return;
-      const made = applyDeltas(basis.positions, balanceDeltas(wallet, tx.meta.preTokenBalances, tx.meta.postTokenBalances));
-      const { signature, blockTime } = batch[j];
-      basis.trades = [...(basis.trades ?? []), ...made.map((r) => ({ ...r, signature, at: blockTime ? blockTime * 1000 : null }))].slice(-1000);
-    });
+    for (let j = 0; j < batch.length; j += 1) {
+      const tx = txs[j];
+      if (tx === false) break outer;
+      if (tx && tx.meta && !tx.meta.err) {
+        const made = applyDeltas(basis.positions, balanceDeltas(wallet, tx.meta.preTokenBalances, tx.meta.postTokenBalances));
+        const { signature, blockTime } = batch[j];
+        basis.trades = [...(basis.trades ?? []), ...made.map((r) => ({ ...r, signature, at: blockTime ? blockTime * 1000 : null }))].slice(-1000);
+      }
+      if (!batch[j].err) processed += 1;
+      cursor = batch[j].signature;
+    }
   }
-  if (fresh.length) basis.lastSignature = fresh[0].signature;
-  basis.transactions += ordered.length;
+  if (cursor) basis.lastSignature = cursor;
+  basis.transactions += processed;
   basis.indexedAt = svc.now();
   await svc.store.set(key(wallet), basis);
   return basis;
