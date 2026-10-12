@@ -179,6 +179,17 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const named = resolveSymbol(t.replace(/\b(did|the|weekend|overnight|move|hold|token|right|this morning|was|how|open|go)\b/g, " "));
     return { tool: "how_did_the_open_go", args: named ? { stock: named.aliases[0] } : {} };
   }
+  // What the issuer can do to a token, a split or dividend coming: a token (or "my tokens") must be the subject,
+  // so "is this safe?" still gets the general explanation.
+  if (
+    /\b(splits?|dividends?|corporate actions?)\b.*\b(coming|scheduled|upcoming|due)\b|\bany (splits?|dividends?)\b/.test(t) ||
+    /\b(freeze|frozen|claw ?back|take back|confiscate|pause)\b.*\b(tokens?|xstocks?)\b/.test(t) ||
+    /\bwho (controls|owns|runs|issues)\b.*\btoken\b/.test(t) ||
+    /\b(token|tokens|xstocks?)\b.*\b(safe|backed|trust(worthy)?|legit|rug)\b/.test(t)
+  ) {
+    const named = resolveSymbol(t.replace(/\b(is|are|my|the|token|tokens|safe|backed|who|controls|owns|runs|issues|can|they|freeze|frozen|any|splits?|dividends?|coming|scheduled)\b/g, " "));
+    return { tool: "token_safety", args: named ? { stock: named.aliases[0] } : {} };
+  }
   if (/\b(how deep|liquid|liquidity|depth|without moving)\b/.test(t)) {
     const named = resolveSymbol(t.replace(/\b(how deep|is|the|market|liquid|liquidity|depth|right now|without moving it)\b/g, " "));
     return { tool: "market_depth", args: { stock: named ? named.aliases[0] : stockIn(t), ...(/\bsell/.test(t) ? { side: "sell" } : {}) } };

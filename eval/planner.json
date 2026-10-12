@@ -969,6 +969,35 @@
     "stock": "crypto stocks",
     "percent": 3
    }
+  },
+  {
+   "say": "Is my Tesla token safe?",
+   "tool": "token_safety",
+   "args": {
+    "stock": "Tesla"
+   }
+  },
+  {
+   "say": "Who controls the Nvidia token?",
+   "tool": "token_safety",
+   "args": {
+    "stock": "Nvidia"
+   }
+  },
+  {
+   "say": "Can they freeze my tokens?",
+   "tool": "token_safety"
+  },
+  {
+   "say": "Any splits or dividends coming?",
+   "tool": "token_safety"
+  },
+  {
+   "say": "Is the Apple token actually backed?",
+   "tool": "token_safety",
+   "args": {
+    "stock": "Apple"
+   }
   }
  ]
 }

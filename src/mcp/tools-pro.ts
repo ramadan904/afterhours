@@ -18,11 +18,11 @@ import type { TradeIntent } from "../chain/trade.js";
 import { fail, say, type Result } from "./result.js";
 import { toolUiMeta } from "./apps.js";
 import { COOLING_OFF_MS, DEFAULT_SLEEP, getGuardrails, inWindow, setDailyLimit, setSleep, spentToday } from "../chain/guardrails.js";
-import { getZone, zoneName, zoneParts } from "../market/zones.js";
+import { getZone, zoneName, zoneParts, type Zone } from "../market/zones.js";
 import { capitalise, clockTime, usd } from "../market/speech.js";
 import { parseTime, spokenTime } from "../notify/briefing.js";
 import { addPlan, cadencePhrase, listPlans, MAX_PLANS, parseWeekday, planRecord, removePlans, type Cadence } from "../chain/recurring.js";
-import { listingByTicker, resolveSymbol } from "../market/universe.js";
+import { listingByTicker, resolveSymbol, type Listing } from "../market/universe.js";
 import { channelCount } from "../notify/push.js";
 import { readBasis } from "../chain/basis.js";
 import { depthLadder, impactAt, sizeWithin } from "../chain/depth.js";
@@ -42,6 +42,8 @@ import { getWatchlist } from "../market/watchlist.js";
 import { createIntent, maxTradeUsd } from "../chain/trade.js";
 import { recordSpend } from "../chain/guardrails.js";
 import { checkPin, hasPin, normalisePin, removePin, setPin, validPin, type PinCheck } from "../auth/pin.js";
+import { describeRescale, mintsOf, multiplierAt, type MintFacts } from "../chain/mint-facts.js";
+import { issuerPowers, rescaleSentence, safetyAnswer } from "../market/safety-talk.js";
 
 /** Like tools.ts's `within`: an optional extra must never cost the voice turn its budget. */
 async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
@@ -977,4 +979,119 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         );
       }),
   );
+  server.registerTool(
+    "token_safety",
+    {
+      title: "What the issuer can do to a token",
+      description:
+        "Reads a tokenized stock's mint account on Solana and says what its issuer can do on chain: issue tokens, freeze holders' tokens, move or burn tokens in any wallet (permanent delegate), pause transfers, rescale balances for splits and dividends (scaled UI amount), hooks and fees. Also whether transfers are paused now, whether the user's own tokens are frozen, and any split or dividend scheduled. With no stock, checks everything the user holds. Use for 'is my Tesla token safe?', 'who controls the Nvidia token?', 'can they freeze my tokens?', 'is anything happening to my tokens?', 'any splits or dividends coming?'.",
+      inputSchema: { stock: z.string().optional().describe("One stock as said; omit for everything the user holds.") },
+      outputSchema: {
+        dataSource: z.enum(["chain", "sample"]),
+        tokens: z.array(
+          z.object({
+            ticker: z.string(),
+            token: z.string(),
+            mint: z.string(),
+            program: z.enum(["token-2022", "token"]),
+            powers: z.array(z.string()),
+            authorities: z.object({
+              mint: z.string().nullable(),
+              freeze: z.string().nullable(),
+              permanentDelegate: z.string().nullable(),
+              pause: z.string().nullable(),
+              scaledUiAmount: z.string().nullable(),
+              transferHook: z.string().nullable(),
+            }),
+            paused: z.boolean().nullable(),
+            frozenForYou: z.boolean().nullable(),
+            multiplier: z.number(),
+            scheduled: z.object({ multiplier: z.number(), at: z.string(), what: z.string() }).nullable(),
+            supply: z.number(),
+            supplyUsd: z.number().nullable(),
+          }),
+        ),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ stock }) =>
+      guard(async () => {
+        const now = svc.now();
+        const zone = await getZone(svc.store, caller.sub);
+        const wallet = caller.wallet ?? (svc.sample ? "" : null);
+        let listings;
+        if (stock) {
+          const one = resolveSymbol(stock);
+          if (!one) return fail(`I don't have a tokenized stock for "${stock}".`);
+          listings = [one];
+        } else {
+          if (wallet === null) return fail("Which stock? Or link a wallet and I'll check everything you hold.");
+          const held = await within(svc.holdings.read(wallet), 1500);
+          if (!held) return fail("I couldn't read your wallet just now. Try again in a moment, or name a stock.");
+          listings = held.flatMap((h) => listingByTicker(h.ticker) ?? []);
+          if (!listings.length) return fail("Your wallet doesn't hold any tokenized stocks yet. Name one and I'll check it.");
+        }
+        const mints = mintsOf(svc);
+        const [facts, frozen, { readings }] = await Promise.all([
+          Promise.all(listings.map((l) => within(mints.facts(l, now), 2500))),
+          Promise.all(listings.map((l) => (wallet ? within(mints.frozen(wallet, l), 2500) : Promise.resolve(null)))),
+          kit.allReadings(),
+        ]);
+        const read = listings.flatMap((l, i) => (facts[i] ? [{ listing: l, facts: facts[i]!, frozen: frozen[i] ?? null }] : []));
+        if (!read.length) return fail("I couldn't read the token's details from Solana just now. Try again in a minute.");
+        const price = new Map(readings.map((r) => [r.ticker, r.tokenPrice]));
+        const sample = svc.sample && !svc.mints;
+        const rows = read.map(({ listing, facts: f, frozen: fz }) => ({
+          ticker: listing.ticker,
+          token: listing.token,
+          mint: listing.mint,
+          program: f.program,
+          powers: issuerPowers(f),
+          authorities: {
+            mint: f.mintAuthority,
+            freeze: f.freezeAuthority,
+            permanentDelegate: f.permanentDelegate,
+            pause: f.pausable?.authority ?? null,
+            scaledUiAmount: f.scaledUiAmount?.authority ?? null,
+            transferHook: f.transferHook,
+          },
+          paused: f.pausable ? f.pausable.paused : null,
+          frozenForYou: fz,
+          multiplier: multiplierAt(f, now),
+          scheduled: f.scaledUiAmount?.next
+            ? { multiplier: f.scaledUiAmount.next.multiplier, at: new Date(f.scaledUiAmount.next.at).toISOString(), what: describeRescale(f.scaledUiAmount.multiplier, f.scaledUiAmount.next.multiplier) }
+            : null,
+          supply: Math.round(f.supply * multiplierAt(f, now) * 1e4) / 1e4,
+          supplyUsd: price.get(listing.ticker) ? Math.round(f.supply * multiplierAt(f, now) * price.get(listing.ticker)!) : null,
+        }));
+        const structured = { dataSource: sample ? ("sample" as const) : ("chain" as const), tokens: rows };
+        if (read.length === 1) {
+          const [{ listing, facts: f, frozen: fz }] = read;
+          return say(safetyAnswer({ listing, facts: f, price: price.get(listing.ticker) ?? null, frozen: fz, now, zone, sample }), structured);
+        }
+        return say(portfolioSafety(read, zone, sample), structured);
+      }),
+  );
+}
+
+/** Several tokens at once: what they share, then only what's different or urgent. */
+function portfolioSafety(read: { listing: Listing; facts: MintFacts; frozen: boolean | null }[], zone: Zone, sample: boolean): string {
+  const parts: string[] = [];
+  const powerSets = read.map((r) => issuerPowers(r.facts).join("|"));
+  const same = powerSets.every((p) => p === powerSets[0]);
+  const n = read.length;
+  if (same && powerSets[0]) parts.push(`All ${n} tokens you hold give their issuer the same powers on chain: it can ${listJoin(issuerPowers(read[0].facts))}.`);
+  else if (same) parts.push(`None of the ${n} tokens you hold give anyone special powers on chain.`);
+  else for (const r of read) parts.push(`${capitalise(r.listing.token)}: its issuer can ${listJoin(issuerPowers(r.facts)) || "do nothing special"}.`);
+  const paused = read.filter((r) => r.facts.pausable?.paused);
+  parts.push(paused.length ? `Transfers are paused right now for ${listJoin(paused.map((r) => r.listing.spoken))}.` : "Transfers are running normally for all of them.");
+  const frozen = read.filter((r) => r.frozen === true);
+  if (frozen.length) parts.push(`Your ${listJoin(frozen.map((r) => r.listing.spoken))} tokens are frozen by the issuer at the moment, so you can't move or sell them until it lifts that.`);
+  else if (read.every((r) => r.frozen === false)) parts.push("None of your tokens are frozen.");
+  const scheduled = read.filter((r) => r.facts.scaledUiAmount?.next);
+  for (const r of scheduled) parts.push(`Coming up for ${r.listing.spoken}: ${rescaleSentence(r.listing, r.facts.scaledUiAmount!.multiplier, r.facts.scaledUiAmount!.next!.multiplier, r.facts.scaledUiAmount!.next!.at, zone)}`);
+  if (!scheduled.length) parts.push("No splits or dividends are scheduled on chain.");
+  if (powerSets[0]) parts.push("That's normal for regulated tokenized stocks: each is only as trustworthy as its issuer, and whether shares back the tokens is attested off chain.");
+  if (sample) parts.push("This is sample data, not a live read of the chain.");
+  return parts.join(" ");
 }

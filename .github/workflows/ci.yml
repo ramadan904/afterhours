@@ -40,6 +40,9 @@ jobs:
       - run: node dist/src/node.js & sleep 4
       - run: curl -sf localhost:8787/health | tee health.json
       - run: npx tsx scripts/conformance.ts http://localhost:8787
+      # The token safety parser against the real Token-2022 mints.
+      - run: npx tsx scripts/token-safety.ts TSLA NVDA SPY AAPL
+        continue-on-error: true
       # Public history sources are unofficial; show what they return, don't fail on them.
       - run: npx tsx scripts/track-record.ts TSLA NVDA COIN
         continue-on-error: true

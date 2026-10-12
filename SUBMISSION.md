@@ -47,6 +47,11 @@ by voice:
   own Solana history (each xStock change paired with the USDC that moved), and the companion app exports it as a
   CSV for tax time. **Wallet watch** pushes within 5 minutes if tokens leave your wallet without a trade Afterhours
   prepared.
+- **What the issuer can do, read from the mint.** "Is my Tesla token safe?" reads the Token-2022 mint and says it
+  plainly: the issuer can freeze holders, move or burn tokens in any wallet, pause transfers and rescale balances.
+  It also says whether transfers are paused now and whether *your* tokens are frozen. Splits and dividends, which
+  xStocks apply as a multiplier on the mint, are **pushed to holders before they land**, and wallet watch never
+  mistakes one for tokens arriving.
 - **Investing without custody.** "Buy $25 of the S&P every Monday" sends a one-tap proposal to your phone each week;
   your wallet still signs every one. "Keep me 60/40" plans a **self-funding rebalance** and prepares it only when you
   say so. Every proposal is also a **Solana Action** (blink), and the confirm page shows a Solana Pay QR to sign on
@@ -57,7 +62,7 @@ by voice:
 
 ## How it works
 
-- **MCP server** (TypeScript, official MCP SDK): stateless Streamable HTTP on `/mcp`, protocol 2025-11-25, 34 tools
+- **MCP server** (TypeScript, official MCP SDK): stateless Streamable HTTP on `/mcp`, protocol 2025-11-25, 35 tools
   with `outputSchema`s and truthful annotations (reads are `readOnlyHint`, removing an alert is `destructiveHint`, and
   proposing a trade is explicitly *not* destructive because it moves nothing). Each result carries a sentence written
   to be spoken plus structured data for a screen.

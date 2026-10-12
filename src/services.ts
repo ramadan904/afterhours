@@ -11,6 +11,7 @@ import { RpcHoldings, SampleHoldings, type HoldingsSource } from "./chain/holdin
 import { JupiterSwap } from "./chain/trade.js";
 import { storeFromEnv, type Store } from "./store/store.js";
 import type { PushSender } from "./notify/push.js";
+import type { MintSource } from "./chain/mint-facts.js";
 
 export interface Services {
   baseUrl: string;
@@ -29,6 +30,8 @@ export interface Services {
   push?: PushSender;
   /** SMS delivery; Amazon SNS when SMS=on. Tests inject a fake. */
   sms?: SmsSender;
+  /** Token mint facts; the chain (or the sample set) when unset. Tests inject a fake. */
+  mints?: MintSource;
 }
 
 export function servicesFromEnv(env: NodeJS.ProcessEnv = process.env): Services {
