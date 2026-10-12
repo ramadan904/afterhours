@@ -974,14 +974,14 @@
    "say": "Is my Tesla token safe?",
    "tool": "token_safety",
    "args": {
-    "stock": "Tesla"
+    "stock": "TSLA"
    }
   },
   {
    "say": "Who controls the Nvidia token?",
    "tool": "token_safety",
    "args": {
-    "stock": "Nvidia"
+    "stock": "NVDA"
    }
   },
   {
@@ -996,7 +996,7 @@
    "say": "Is the Apple token actually backed?",
    "tool": "token_safety",
    "args": {
-    "stock": "Apple"
+    "stock": "AAPL"
    }
   }
  ]
