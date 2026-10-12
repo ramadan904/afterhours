@@ -1017,7 +1017,9 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         };
 
         const base = { sub: caller.sub, wallet: caller.wallet, ticker: listing.ticker, side, usd: amount_usd, priceAtProposal: r.tokenPrice };
-        if (rules.sleep && trigger_price === undefined && inWindow(zoneParts(new Date(now), zone.tz).minutes, rules.sleep)) {
+        // A "conditional" trade priced at the market is prepared at once, so it sleeps on it too.
+        const immediate = trigger_price === undefined || Math.abs(trigger_price / r.tokenPrice - 1) <= 0.001;
+        if (rules.sleep && immediate && inWindow(zoneParts(new Date(now), zone.tz).minutes, rules.sleep)) {
           const until = nextLocal(now, zone, rules.sleep.to);
           const held = await armIntent(svc.store, base, { hold: { until, reason: "sleep" } }, now);
           await spend(held.id);

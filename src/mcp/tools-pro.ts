@@ -17,8 +17,8 @@ import type { MarketSession } from "../market/session.js";
 import type { TradeIntent } from "../chain/trade.js";
 import { fail, say, type Result } from "./result.js";
 import { toolUiMeta } from "./apps.js";
-import { COOLING_OFF_MS, DEFAULT_SLEEP, getGuardrails, setDailyLimit, setSleep, spentToday } from "../chain/guardrails.js";
-import { getZone, zoneName } from "../market/zones.js";
+import { COOLING_OFF_MS, DEFAULT_SLEEP, getGuardrails, inWindow, setDailyLimit, setSleep, spentToday } from "../chain/guardrails.js";
+import { getZone, zoneName, zoneParts } from "../market/zones.js";
 import { capitalise, clockTime, usd } from "../market/speech.js";
 import { parseTime, spokenTime } from "../notify/briefing.js";
 import { addPlan, cadencePhrase, listPlans, MAX_PLANS, parseWeekday, planRecord, removePlans, type Cadence } from "../chain/recurring.js";
@@ -602,6 +602,11 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         if (!caller.wallet) return fail("No wallet is linked yet. Link one in the Alexa app first.");
         const pinCheck = await checkPin(svc.store, caller.sub, pin, now);
         if (!pinCheck.ok) return fail(pinRefusal(pinCheck, await getZone(svc.store, caller.sub)));
+        const sleepRules = await getGuardrails(svc.store, caller.sub, now);
+        const sleepZone = await getZone(svc.store, caller.sub);
+        if (sleepRules.sleep && inWindow(zoneParts(new Date(now), sleepZone.tz).minutes, sleepRules.sleep)) {
+          return fail(`Sleep mode is on until ${spokenTime(sleepRules.sleep.to)}, so I won't prepare a rebalance now. Ask me again in the morning.`);
+        }
         const cap = maxTradeUsd();
         if (plan.legs.some((l) => l.usd > cap)) return fail(`One of those trades is over the ${usd(cap)} I can prepare by voice. You can rebalance in smaller steps, or from the companion app.`);
         const zone = await getZone(svc.store, caller.sub);

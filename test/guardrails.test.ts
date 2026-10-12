@@ -113,3 +113,25 @@ describe("the scripted planner routes guardrails", () => {
     ["is sleep mode on?", { tool: "set_sleep_mode", args: {} }],
   ])("%s", (said, expected) => expect(route(said)).toEqual(expected));
 });
+
+describe("review fixes", () => {
+  it("keeps a cancelled buy out of today's spending even after its proposal expires", async () => {
+    const { session, h, sub, advance, now } = await setup();
+    await session.call("set_spending_limit", { daily_usd: 100 });
+    await session.call("propose_trade", buy("Tesla", 100));
+    await session.call("cancel_trade", {});
+    advance(80 * 60_000);
+    const { spentToday } = await import("../src/chain/guardrails.js");
+    expect(await spentToday(h.svc.store, sub, { tz: "America/New_York", label: "Eastern" }, now())).toBe(0);
+  });
+
+  it("sleeps on a 'conditional' trade priced at the market, and on a rebalance", async () => {
+    const { session } = await setup(Date.parse("2026-10-13T06:14:00Z")); // 2:14 a.m. Eastern
+    await session.call("set_sleep_mode", { on: true });
+    const near = await session.call("propose_trade", { stock: "Tesla", side: "buy", amount_usd: 50, trigger_price: 370.6 });
+    expect(near.structured).toMatchObject({ status: "armed", code: "" });
+    expect(near.text).toContain("sleep mode is on");
+    await session.call("set_target_allocation", { targets: [{ stock: "Nvidia", percent: 60 }, { stock: "SPY", percent: 40 }] });
+    expect((await session.call("rebalance", { confirm: true })).text).toBe("Sleep mode is on until 7 a.m., so I won't prepare a rebalance now. Ask me again in the morning.");
+  });
+});

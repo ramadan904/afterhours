@@ -99,7 +99,9 @@ async function allocateCode(store: Store, id: string, ttlSeconds: number): Promi
 
 /** Keeps an intent readable for an hour past its own expiry, for status questions. */
 function retention(intent: TradeIntent, now: number): number {
-  return Math.max(3600, Math.ceil((intent.expiresAt - now) / 1000) + 3600);
+  // At least two days: the daily spending ledger reads these back to see
+  // whether a buy was cancelled or expired, for the rest of its local day.
+  return Math.max(2 * 86_400, Math.ceil((intent.expiresAt - now) / 1000) + 3600);
 }
 
 export async function createIntent(
