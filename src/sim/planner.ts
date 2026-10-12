@@ -280,6 +280,12 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     }
     const percent = /(\d+(?:\.\d+)?)\s*(?:%|percent)/.exec(t)?.[1] ?? Object.entries(NUMBER_WORDS).find(([w]) => new RegExp(`\\b${w}\\s+percent`).test(t))?.[1];
     const named = /\b(?:if|when)\s+(.+?)\s+(?:moves?|goes|go|drifts?|jumps?|drops?|is|are|gets?|changes?)\b/.exec(t)?.[1] ?? t;
+    // "within an hour", "in 30 minutes", "inside two hours": a sudden-move alert.
+    const win = /\b(?:within|in|inside)\s+(an?|half an|\d+|one|two|three|four)\s*(hour|hr|minute|min)s?\b/.exec(t);
+    if (win) {
+      const n = win[1] === "half an" ? 0.5 : /^an?$|^one$/.test(win[1]) ? 1 : ({ two: 2, three: 3, four: 4 } as Record<string, number>)[win[1]] ?? Number(win[1]);
+      return { tool: "set_alert", args: { stock: stockIn(named), percent: Number(percent ?? 2), within_minutes: /^h/.test(win[2]) ? n * 60 : n } };
+    }
     return { tool: "set_alert", args: { stock: stockIn(named), percent: Number(percent ?? 2) } };
   }
   const place = /^(?:i'?m|i am|i live|we're|we are)\s+(?:in|at)\s+(.+)$|\b(?:time ?zone|use)\s+(?:is\s+|to\s+)?(.+?)(?:\s+time)?$/.exec(t.replace(/[.!?]+$/, ""));

@@ -29,9 +29,23 @@ export interface Alert {
   firedGapBps?: number;
   /** The token price at the moment it fired. */
   firedPrice?: number;
+  /**
+   * Velocity alert: fires when the gap changes by thresholdBps within this
+   * many minutes ("2 percent within an hour"), read from the overnight tape.
+   */
+  windowMin?: number;
 }
 
 export const isPriceAlert = (a: Alert) => typeof a.price === "number";
+export const isVelocityAlert = (a: Alert) => typeof a.windowMin === "number";
+const kindOf = (a: Alert) => (isPriceAlert(a) ? "price" : isVelocityAlert(a) ? "velocity" : "move");
+
+/** Windows a velocity alert can use, in minutes. Requests are rounded to the nearest. */
+export const VELOCITY_WINDOWS = [15, 30, 60, 120, 240];
+export const nearestWindow = (min: number) => VELOCITY_WINDOWS.reduce((a, b) => (Math.abs(b - min) < Math.abs(a - min) ? b : a));
+
+/** `${ticker}:${windowMin}` → the gap that many minutes ago, from the tape. */
+export type PastGaps = Map<string, number>;
 
 /** Price alerts re-arm once the token is this far back on the other side of the line. */
 const PRICE_REARM = 0.01;
@@ -53,7 +67,7 @@ async function index(store: Store): Promise<string[]> {
 
 /** Adds or replaces the alert of the same kind for a ticker. Returns the full list. */
 export async function upsertAlert(store: Store, sub: string, alert: Alert): Promise<Alert[]> {
-  const current = (await listAlerts(store, sub)).filter((a) => a.ticker !== alert.ticker || isPriceAlert(a) !== isPriceAlert(alert));
+  const current = (await listAlerts(store, sub)).filter((a) => a.ticker !== alert.ticker || kindOf(a) !== kindOf(alert));
   if (current.length >= MAX_ALERTS) {
     throw new Error(`You can keep up to ${MAX_ALERTS} alerts. Remove one first.`);
   }
@@ -83,10 +97,25 @@ function usable(reading: GapReading | undefined): reading is GapReading & { gapB
  * Updates fired/re-armed state for one account's alerts against a board.
  * Returns the alerts that fired on this check.
  */
-export function evaluate(alerts: Alert[], readings: GapReading[], now: number): { next: Alert[]; fired: Alert[] } {
+export function evaluate(alerts: Alert[], readings: GapReading[], now: number, past: PastGaps = new Map()): { next: Alert[]; fired: Alert[] } {
   const fired: Alert[] = [];
   const next = alerts.map((alert) => {
     const reading = readings.find((r) => r.ticker === alert.ticker);
+    if (isVelocityAlert(alert)) {
+      const then = past.get(`${alert.ticker}:${alert.windowMin}`);
+      if (!usable(reading) || then === undefined) return alert;
+      const change = reading.gapBps - then;
+      if (!alert.firedAt && Math.abs(change) >= alert.thresholdBps) {
+        const updated = { ...alert, firedAt: now, firedGapBps: Math.round(change * 10) / 10, firedPrice: reading.tokenPrice };
+        fired.push(updated);
+        return updated;
+      }
+      if (alert.firedAt && Math.abs(change) < alert.thresholdBps / 2) {
+        const { firedAt: _f, firedGapBps: _g, firedPrice: _p, ...rearmed } = alert;
+        return rearmed;
+      }
+      return alert;
+    }
     if (isPriceAlert(alert)) {
       if (!reading) return alert;
       const price = reading.tokenPrice;
@@ -121,11 +150,11 @@ export function evaluate(alerts: Alert[], readings: GapReading[], now: number): 
 }
 
 /** Checks every account's alerts. Returns each alert that fired, with its account. */
-export async function evaluateAll(store: Store, readings: GapReading[], now: number): Promise<{ sub: string; alert: Alert }[]> {
+export async function evaluateAll(store: Store, readings: GapReading[], now: number, past: PastGaps = new Map()): Promise<{ sub: string; alert: Alert }[]> {
   const out: { sub: string; alert: Alert }[] = [];
   for (const sub of await index(store)) {
     const alerts = await listAlerts(store, sub);
-    const { next, fired } = evaluate(alerts, readings, now);
+    const { next, fired } = evaluate(alerts, readings, now, past);
     if (JSON.stringify(next) !== JSON.stringify(alerts)) await store.set(key(sub), next);
     for (const alert of fired) out.push({ sub, alert });
   }
@@ -160,6 +189,10 @@ export function alertNews(alerts: Alert[], readings: GapReading[], now: number):
       continue;
     }
     if (!usable(reading)) continue;
+    if (isVelocityAlert(alert)) {
+      if (recent) out.push({ alert, reading, firedAt: alert.firedAt!, firedGapBps: alert.firedGapBps ?? 0, firedPrice: alert.firedPrice ?? reading.tokenPrice });
+      continue;
+    }
     if (recent) {
       out.push({ alert, reading, firedAt: alert.firedAt!, firedGapBps: alert.firedGapBps ?? reading.gapBps, firedPrice: reading.tokenPrice });
     } else if (Math.abs(reading.gapBps) >= alert.thresholdBps) {

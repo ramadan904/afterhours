@@ -20,8 +20,8 @@ import { LISTINGS } from "./universe.js";
 import { readGap, type GapReading } from "./gap.js";
 import { getMarketSession, lastRegularClose } from "./session.js";
 import { SAMPLE_BOARD } from "./prices.js";
-import { evaluateAll } from "./alerts.js";
-import { sectorReadings } from "./sectors.js";
+import { evaluateAll, VELOCITY_WINDOWS, type PastGaps } from "./alerts.js";
+import { SECTORS, sectorById, sectorReadings } from "./sectors.js";
 import { notify } from "../notify/push.js";
 import { alertNotice, settledTradeNotice, triggeredTradeNotice } from "../notify/notices.js";
 import { settlePending } from "../chain/settle.js";
@@ -118,8 +118,10 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   const now = svc.now();
   const board = await svc.prices.read();
   const readings = readingsFrom(board, now);
-  // Sector alerts ride along as readings of their own ("sector:chips").
-  const firedAlerts = await evaluateAll(svc.store, [...readings, ...sectorReadings(readings)], now);
+  // Sector alerts ride along as readings of their own ("sector:chips"), and
+  // velocity alerts compare with the tape up to four hours back.
+  const past = pastGaps(await readTape(svc, now - (Math.max(...VELOCITY_WINDOWS) + 15) * 60_000), now);
+  const firedAlerts = await evaluateAll(svc.store, [...readings, ...sectorReadings(readings)], now, past);
   const fired = firedAlerts.length;
   count("TapeSamples");
   if (fired) count("AlertsFired", fired);
@@ -164,6 +166,26 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   for (const r of readings) if (r.gapBps !== null && r.kind !== "stale_reference") gaps[r.ticker] = r.gapBps;
   await writeTape(svc.store, [{ at: now, gaps }]);
   return { recorded: true, fired, triggered: triggered.length, points: recent.length + 1 };
+}
+
+/**
+ * For each velocity window, every name's gap that long ago (the nearest sample
+ * at or before it, within 10 minutes), keyed `${ticker}:${minutes}`. Sectors
+ * are averaged from their members, as their live readings are.
+ */
+export function pastGaps(tape: TapePoint[], now: number): PastGaps {
+  const out: PastGaps = new Map();
+  for (const w of VELOCITY_WINDOWS) {
+    const target = now - w * 60_000;
+    const point = [...tape].reverse().find((p) => p.at <= target && target - p.at <= 10 * 60_000);
+    if (!point) continue;
+    for (const [ticker, bps] of Object.entries(point.gaps)) out.set(`${ticker}:${w}`, bps);
+    for (const s of [...SECTORS, sectorById("tech")!]) {
+      const vals = s.members.map((m) => point.gaps[m]).filter((v): v is number => typeof v === "number");
+      if (vals.length >= 2) out.set(`sector:${s.id}:${w}`, vals.reduce((a, b) => a + b, 0) / vals.length);
+    }
+  }
+  return out;
 }
 
 export interface Extreme {

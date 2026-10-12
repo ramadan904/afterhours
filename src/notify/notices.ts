@@ -13,6 +13,13 @@ import type { Notice } from "./push.js";
 import type { TradeIntent } from "../chain/trade.js";
 import { EASTERN, type Zone } from "../market/zones.js";
 
+/** 15 → "15 minutes", 60 → "an hour", 120 → "2 hours". */
+export function windowWords(min: number): string {
+  if (min === 60) return "an hour";
+  if (min === 30) return "half an hour";
+  return min < 60 ? `${min} minutes` : `${min / 60} hours`;
+}
+
 /** "ET" on a lock screen; "London time" elsewhere. */
 const short = (zone: Zone) => (zone.label === "Eastern" ? "ET" : `${zone.label} time`);
 
@@ -22,6 +29,14 @@ export function alertNotice(alert: Alert, baseUrl: string, zone: Zone = EASTERN)
   const name = capitalise(nameFor(alert.ticker));
   const at = alert.firedAt ? `${clockTime(alert.firedAt, zone)} ${short(zone)}` : "just now";
   const url = `${baseUrl}/app/#${alert.ticker}`;
+  if (alert.windowMin) {
+    return {
+      title: `${name} moved ${signed(alert.firedGapBps ?? 0)} in ${windowWords(alert.windowMin)}`,
+      body: `Your ${pct(alert.thresholdBps)} within ${windowWords(alert.windowMin)} alert went off at ${at}.`,
+      url,
+      tag: `alert-${alert.ticker}-velocity`,
+    };
+  }
   if (isPriceAlert(alert)) {
     const dir = alert.above ? "above" : "below";
     return {

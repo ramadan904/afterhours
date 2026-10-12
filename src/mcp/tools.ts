@@ -29,7 +29,8 @@ import { DAYS_SPOKEN, getBriefing, parseTime, setBriefing, spokenTime, type Brie
 import { channelCount } from "../notify/push.js";
 import { aroundTime, capitalise, clockTime, gapSentence, move, pct, sessionSentence, usd, verdictSentence, nextOpenPhrase, whenSpoken } from "../market/speech.js";
 import { PriceSourceError, type Board } from "../market/prices.js";
-import { alertNews, isPriceAlert, listAlerts, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
+import { alertNews, isPriceAlert, listAlerts, nearestWindow, removeAlert, upsertAlert, MAX_ALERTS } from "../market/alerts.js";
+import { windowWords } from "../notify/notices.js";
 import { overnightRange, readTape, type OvernightRange } from "../market/tape.js";
 import { armIntent, createIntent, getIntent, intentByCode, maxTradeUsd, recentlyTriggered, saveIntent, type TradeIntent } from "../chain/trade.js";
 import { readOpens, sampleOpens, trackRecord, type OpenRecord } from "../market/history.js";
@@ -450,7 +451,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         alertsTriggered: z.array(
           z.object({
             ticker: z.string(),
-            kind: z.enum(["move", "price"]),
+            kind: z.enum(["move", "price", "velocity"]),
             price: z.number().nullable(),
             tokenPrice: z.number(),
             thresholdPercent: z.number().nullable(),
@@ -484,6 +485,10 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
                 ? `${capitalise(possessiveName(n.reading.spoken))} token went ${dir} ${usd(n.alert.price!)} ${whenSpoken(n.firedAt, now, zone)}; ${nowAt}.`
                 : `${capitalise(possessiveName(n.reading.spoken))} token is ${dir} your ${usd(n.alert.price!)} line, at ${usd(n.reading.tokenPrice)}.`,
             );
+            continue;
+          }
+          if (n.alert.windowMin && n.firedAt) {
+            parts.push(`${capitalise(possessiveName(n.reading.spoken))} sudden-move alert went off ${whenSpoken(n.firedAt, now, zone)}: it moved ${move(n.firedGapBps)} within ${windowWords(n.alert.windowMin)}.`);
             continue;
           }
           if (n.firedAt) {
@@ -536,7 +541,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           portfolio: mine && mine.positions.length > 0 ? { totalUsd: Math.round(mine.total * 100) / 100, changeUsd: Math.round(mine.change * 100) / 100, leader: mine.biggest?.ticker ?? null } : null,
           alertsTriggered: news.map((n) => ({
             ticker: n.alert.ticker,
-            kind: isPriceAlert(n.alert) ? ("price" as const) : ("move" as const),
+            kind: isPriceAlert(n.alert) ? ("price" as const) : n.alert.windowMin ? ("velocity" as const) : ("move" as const),
             price: n.alert.price ?? null,
             tokenPrice: n.reading.tokenPrice,
             thresholdPercent: isPriceAlert(n.alert) ? null : n.alert.thresholdBps / 100,
@@ -689,10 +694,16 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         stock: z.string().min(1).describe("Company name or ticker as the user said it."),
         percent: z.number().min(0.2).max(50).optional().describe("Move size in percent, e.g. 2 for two percent."),
         price: z.number().positive().optional().describe("Token price in US dollars to watch for, e.g. 400."),
+        within_minutes: z
+          .number()
+          .positive()
+          .max(240)
+          .optional()
+          .describe("Only for 'moves X percent within an hour' (a sudden move): the time window in minutes. Rounded to 15, 30, 60, 120 or 240."),
       },
       outputSchema: {
         ticker: z.string(),
-        kind: z.enum(["move", "price"]),
+        kind: z.enum(["move", "price", "velocity"]),
         thresholdPercent: z.number().nullable(),
         price: z.number().nullable(),
         direction: z.enum(["above", "below"]).nullable(),
@@ -700,10 +711,27 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ stock, percent, price }) =>
+    async ({ stock, percent, price, within_minutes }) =>
       guard(async () => {
         const listing = resolveSymbol(stock);
         const sector = listing ? null : resolveSector(stock);
+        if (within_minutes !== undefined) {
+          // A sudden move: the gap changing by `percent` within the window, from the tape.
+          const target = listing ? { ticker: listing.ticker, name: listing.spoken } : sector ? { ticker: `${SECTOR_PREFIX}${sector.id}`, name: sector.spoken } : null;
+          if (!target) return unknownStock(stock);
+          if (percent === undefined) return fail(`How big a move within ${windowWords(nearestWindow(within_minutes))}? For example, 2 percent.`);
+          const windowMin = nearestWindow(within_minutes);
+          const thresholdBps = Math.max(NOISE_FLOOR_BPS, Math.round(percent * 100));
+          const list = await upsertAlert(svc.store, caller.sub, { ticker: target.ticker, thresholdBps, windowMin, createdAt: svc.now() });
+          return say(`Done. I'll tell you if ${target.name} ${sector ? "move" : "moves"} ${pct(thresholdBps)} or more within ${windowWords(windowMin)}, up or down, day or night.`, {
+            ticker: target.ticker,
+            kind: "velocity",
+            thresholdPercent: thresholdBps / 100,
+            price: null,
+            direction: null,
+            alertCount: list.length,
+          });
+        }
         if (sector) {
           // A sector has a move (its members' average), not a price.
           if (percent === undefined) return fail(`I can watch ${sector.spoken} for a percent move, like 2 percent, but not a price.`);
@@ -875,7 +903,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       inputSchema: {},
       outputSchema: {
         alerts: z.array(
-          z.object({ ticker: z.string(), name: z.string(), kind: z.enum(["move", "price"]), thresholdPercent: z.number().nullable(), price: z.number().nullable(), direction: z.enum(["above", "below"]).nullable() }),
+          z.object({ ticker: z.string(), name: z.string(), kind: z.enum(["move", "price", "velocity"]), thresholdPercent: z.number().nullable(), price: z.number().nullable(), direction: z.enum(["above", "below"]).nullable(), windowMinutes: z.number().nullable() }),
         ),
         max: z.number(),
       },
@@ -887,15 +915,16 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         const named = alerts.map((a) => ({
           ticker: a.ticker,
           name: nameFor(a.ticker),
-          kind: isPriceAlert(a) ? ("price" as const) : ("move" as const),
+          kind: isPriceAlert(a) ? ("price" as const) : a.windowMin ? ("velocity" as const) : ("move" as const),
           thresholdPercent: isPriceAlert(a) ? null : a.thresholdBps / 100,
+          windowMinutes: a.windowMin ?? null,
           price: a.price ?? null,
           direction: isPriceAlert(a) ? (a.above ? ("above" as const) : ("below" as const)) : null,
         }));
         const text =
           named.length === 0
             ? "You don't have any alerts. You can say, tell me if Tesla moves more than 2 percent."
-            : `You have ${named.length === 1 ? "one alert" : `${named.length} alerts`}: ${listPhrase(named.map((a) => (a.kind === "price" ? `${a.name} ${a.direction} ${usd(a.price!)}` : `${a.name} at ${pct(a.thresholdPercent! * 100)}`)))}.`;
+            : `You have ${named.length === 1 ? "one alert" : `${named.length} alerts`}: ${listPhrase(named.map((a) => (a.kind === "price" ? `${a.name} ${a.direction} ${usd(a.price!)}` : a.kind === "velocity" ? `${a.name} at ${pct(a.thresholdPercent! * 100)} within ${windowWords(a.windowMinutes!)}` : `${a.name} at ${pct(a.thresholdPercent! * 100)}`)))}.`;
         return say(text, { alerts: named, max: MAX_ALERTS });
       }),
   );
