@@ -135,6 +135,16 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
     return { tool: "trade_status", args: code ? { code } : {} };
   }
+  if (/\brebalanc/.test(t) || /\bhow far\b.*\btarget\b/.test(t)) {
+    return { tool: "rebalance", args: /\b(now|go ahead|do it|yes)\b/.test(t) ? { confirm: true } : {} };
+  }
+  if (/\btarget (mix|allocation)\b/.test(t) && /\b(what|clear)\b/.test(t)) {
+    return { tool: "set_target_allocation", args: /\bclear\b/.test(t) ? { clear: true } : {} };
+  }
+  const mix = [...t.matchAll(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s+(?:in\s+|of\s+)?([a-z&.' ]+?)(?=\s*(?:,|\band\b|$|\d))/g)];
+  if (mix.length >= 2 && /\b(keep|target|mix|allocation|split)\b/.test(t)) {
+    return { tool: "set_target_allocation", args: { targets: mix.map((m) => ({ stock: stockIn(m[2].trim()), percent: Number(m[1]) })) } };
+  }
   if (/\b(trade |voice )?pin\b/.test(t) && /\b(set|add|change|new|remove|delete|turn off|do i have|have a)\b/.test(t)) {
     if (/\b(remove|delete|turn off)\b/.test(t)) return { tool: "set_trade_pin", args: { remove: true } };
     if (/\b(do i have|have a)\b/.test(t) && !/\bset\b/.test(t)) return { tool: "set_trade_pin", args: {} };

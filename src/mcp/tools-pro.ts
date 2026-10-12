@@ -25,6 +25,9 @@ import { listingByTicker, resolveSymbol } from "../market/universe.js";
 import { listSubscriptions } from "../notify/push.js";
 import { readBasis } from "../chain/basis.js";
 import { depthLadder, sizeWithin } from "../chain/depth.js";
+import { getTargets, planRebalance, setTargets } from "../market/rebalance.js";
+import { createIntent, maxTradeUsd } from "../chain/trade.js";
+import { recordSpend } from "../chain/guardrails.js";
 import { checkPin, hasPin, normalisePin, removePin, setPin, validPin, type PinCheck } from "../auth/pin.js";
 
 /** Like tools.ts's `within`: an optional extra must never cost the voice turn its budget. */
@@ -487,6 +490,119 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         if (/^(\d)\1+$/.test(pin) || "0123456789".includes(pin) || "9876543210".includes(pin)) return fail("That PIN is too easy to guess. Pick digits that aren't all the same or in a row.");
         await setPin(svc.store, caller.sub, pin);
         return say(`Done. ${had ? "Your new PIN is set." : "From now on I'll ask for your PIN before preparing a trade."} I won't say it back.`, { pinSet: true });
+      }),
+  );
+
+  server.registerTool(
+    "set_target_allocation",
+    {
+      title: "Set my target mix",
+      description:
+        "Sets the mix the user wants their tokenized stocks kept at, in percent per stock (summing to 100), for rebalancing. Use for 'keep me 60 percent S&P and 40 percent Nasdaq', 'my target is half Nvidia, half Apple', 'clear my targets', 'what's my target mix?'. Call with no arguments to read it.",
+      inputSchema: {
+        targets: z.array(z.object({ stock: z.string().min(1), percent: z.number().positive().max(100) })).max(10).optional(),
+        clear: z.boolean().optional(),
+      },
+      outputSchema: { targets: z.array(z.object({ ticker: z.string(), percent: z.number() })) },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ targets, clear }) =>
+      guard(async () => {
+        const name = (t: string) => listingByTicker(t)?.spoken ?? t;
+        const out = (t: Record<string, number> | null) => ({ targets: Object.entries(t ?? {}).map(([ticker, f]) => ({ ticker, percent: Math.round(f * 1000) / 10 })) });
+        if (clear) {
+          await setTargets(svc.store, caller.sub, null);
+          return say("Your target mix is cleared.", out(null));
+        }
+        if (!targets?.length) {
+          const t = await getTargets(svc.store, caller.sub);
+          if (!t) return say("You don't have a target mix. You can say, keep me 60 percent S&P and 40 percent Nasdaq.", out(null));
+          return say(`Your target mix is ${listJoin(Object.entries(t).map(([k, f]) => `${Math.round(f * 100)} percent ${name(k)}`))}.`, out(t));
+        }
+        const mix: Record<string, number> = {};
+        for (const { stock, percent } of targets) {
+          const l = resolveSymbol(stock);
+          if (!l) return fail(`I don't have a tokenized stock for "${stock}".`);
+          mix[l.ticker] = (mix[l.ticker] ?? 0) + percent;
+        }
+        const total = Object.values(mix).reduce((a, b) => a + b, 0);
+        if (Math.abs(total - 100) > 1) return fail(`Those add up to ${Math.round(total)} percent. A target mix needs to add up to 100.`);
+        const fractions = Object.fromEntries(Object.entries(mix).map(([k, v]) => [k, v / total]));
+        await setTargets(svc.store, caller.sub, fractions);
+        return say(
+          `Done. Your target mix is ${listJoin(Object.entries(fractions).map(([k, f]) => `${Math.round(f * 100)} percent ${name(k)}`))}. Ask me to check my balance against it any time.`,
+          out(fractions),
+        );
+      }),
+  );
+
+  server.registerTool(
+    "rebalance",
+    {
+      title: "Rebalance to my target mix",
+      description:
+        "Compares the user's holdings with their target mix and works out the sells and buys that bring it back, paid for by the sales (no new money). Without confirm, it only explains the drift and the trades it would propose. With confirm (after the user says yes), it prepares those trades for the user to sign in their wallet, sales first. Use for 'how far am I from my target?', 'rebalance my portfolio', 'yes, rebalance now'.",
+      inputSchema: {
+        confirm: z.boolean().optional().describe("True only after the user has heard the plan and said to go ahead."),
+        pin: z.string().optional().describe("The user's trade PIN, if they have one; needed with confirm."),
+      },
+      outputSchema: {
+        dataSource: z.enum(["jupiter", "sample"]),
+        baseUsd: z.number(),
+        rows: z.array(z.object({ ticker: z.string(), valueUsd: z.number(), percent: z.number(), targetPercent: z.number() })),
+        legs: z.array(z.object({ ticker: z.string(), side: z.enum(["buy", "sell"]), usd: z.number(), code: z.string().nullable() })),
+        prepared: z.boolean(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ confirm, pin }) =>
+      guard(async () => {
+        const targets = await getTargets(svc.store, caller.sub);
+        if (!targets) return fail("You haven't set a target mix yet. You can say, keep me 60 percent S&P and 40 percent Nasdaq.");
+        const wallet = caller.wallet ?? (svc.sample ? "" : null);
+        if (wallet === null) return fail("No wallet is linked yet. Link one in the Alexa app first.");
+        const [holdings, { board, readings, now }] = await Promise.all([within(svc.holdings.read(wallet), 450), kit.allReadings()]);
+        if (!holdings) return fail("I couldn't read your wallet's balances just now. Try again in a moment.");
+        const price = new Map(readings.map((r) => [r.ticker, r.tokenPrice]));
+        const values = Object.fromEntries(holdings.filter((h) => price.has(h.ticker)).map((h) => [h.ticker, h.amount * price.get(h.ticker)!]));
+        const plan = planRebalance(targets, values);
+        const name = (t: string) => listingByTicker(t)?.spoken ?? t;
+        const pctN = (f: number) => Math.round(f * 100);
+        const data = (codes: Record<string, string> = {}) => ({
+          dataSource: board.source,
+          baseUsd: Math.round(plan.baseUsd * 100) / 100,
+          rows: plan.rows.map((r) => ({ ticker: r.ticker, valueUsd: Math.round(r.valueUsd * 100) / 100, percent: Math.round(r.weight * 1000) / 10, targetPercent: Math.round(r.target * 1000) / 10 })),
+          legs: plan.legs.map((l) => ({ ...l, code: codes[`${l.side}:${l.ticker}`] ?? null })),
+          prepared: Object.keys(codes).length > 0,
+        });
+        const note = board.source === "sample" ? "Using sample data. " : "";
+        if (plan.baseUsd < 1) return fail("You don't hold any of the stocks in your target mix yet, so there's nothing to rebalance. A buy would start it.");
+        const off = plan.rows.filter((r) => Math.abs(r.weight - r.target) >= 0.02).map((r) => `${name(r.ticker)} is ${pctN(r.weight)} percent against a ${pctN(r.target)} percent target`);
+        if (!plan.legs.length) return say(`${note}You're within 2 percent of your target mix, so there's nothing worth trading.`, data());
+        const legsSaid = listJoin(plan.legs.map((l) => `${l.side} ${usd(l.usd)} of ${name(l.ticker)}`));
+        if (!confirm) {
+          return say(`${note}${capitalise(listJoin(off))}. To get back, I'd ${legsSaid}, paid for by the sale${plan.legs.filter((l) => l.side === "sell").length > 1 ? "s" : ""}. Say rebalance now and I'll prepare them for you to sign.`, data());
+        }
+        if (!caller.wallet) return fail("No wallet is linked yet. Link one in the Alexa app first.");
+        const pinCheck = await checkPin(svc.store, caller.sub, pin, now);
+        if (!pinCheck.ok) return fail(pinRefusal(pinCheck, await getZone(svc.store, caller.sub)));
+        const cap = maxTradeUsd();
+        if (plan.legs.some((l) => l.usd > cap)) return fail(`One of those trades is over the ${usd(cap)} I can prepare by voice. You can rebalance in smaller steps, or from the companion app.`);
+        const zone = await getZone(svc.store, caller.sub);
+        const rules = await getGuardrails(svc.store, caller.sub, now);
+        const buying = plan.legs.filter((l) => l.side === "buy").reduce((t, l) => t + l.usd, 0);
+        if (rules.dailyLimitUsd !== null && (await spentToday(svc.store, caller.sub, zone, now)) + buying > rules.dailyLimitUsd + 0.001) {
+          return fail(`The buys add up to ${usd(buying)}, which is over your ${usd(rules.dailyLimitUsd)} daily limit. Nothing was prepared.`);
+        }
+        const codes: Record<string, string> = {};
+        for (const l of plan.legs) {
+          const intent = await createIntent(svc.store, { sub: caller.sub, wallet: caller.wallet, ticker: l.ticker, side: l.side, usd: l.usd, priceAtProposal: price.get(l.ticker)! }, now, 30 * 60);
+          if (l.side === "buy") await recordSpend(svc.store, caller.sub, zone, now, intent.id, l.usd);
+          codes[`${l.side}:${l.ticker}`] = intent.code;
+        }
+        // In order, as sentences, so the codes don't run together when spoken.
+        const spoken = plan.legs.map((l, i) => `${i === 0 ? capitalise(l.side) : `Then ${l.side}`} ${usd(l.usd)} of ${name(l.ticker)}, code ${codes[`${l.side}:${l.ticker}`].split("").join(" ")}.`);
+        return say(`${note}${plan.legs.length} trades are ready to sign for the next 30 minutes, sales first so they pay for the buys. ${spoken.join(" ")} They're also in the Afterhours app.`, data(codes));
       }),
   );
 }
