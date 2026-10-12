@@ -218,6 +218,9 @@ const intentShape = {
   triggeredAt: z.string().nullable(),
 };
 
+/** Diversified by construction: no concentration warning for buying these. */
+const BROAD_FUNDS = new Set(["SPY", "QQQ", "VTI", "IWM"]);
+
 /** "Most of that is Tesla's own: …" — the market-versus-company split, spoken. */
 export function splitSentence(name: string, s: MoveSplit): string {
   const market = `the S&P 500 token is ${s.marketBps >= 0 ? "up" : "down"} ${pct(s.marketBps)}`;
@@ -973,6 +976,20 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           `${sampleNote(board)}A ${side} of ${usd(amount_usd)} of ${listing.spoken} at about ${usd(r.tokenPrice)} is ready for you to sign.`,
           `Open ${spokenUrl(svc.baseUrl, "/go")} and enter code ${spokenCode(intent.code)}. It expires in 15 minutes.`,
         ];
+        // One name taking over the portfolio is worth a sentence before signing. Broad index funds are exempt.
+        if (side === "buy" && !BROAD_FUNDS.has(listing.ticker)) {
+          const held = await within(svc.holdings.read(caller.wallet), 300);
+          if (held?.length) {
+            const value = (t: string, amt: number) => amt * (readings.find((x) => x.ticker === t)?.tokenPrice ?? 0);
+            const total = held.reduce((sum, h) => sum + value(h.ticker, h.amount), 0);
+            const mine = value(listing.ticker, held.find((h) => h.ticker === listing.ticker)?.amount ?? 0);
+            const before = total ? mine / total : 0;
+            const after = (mine + amount_usd) / (total + amount_usd);
+            if (total >= amount_usd && after >= 0.4 && after > before + 0.02) {
+              parts.push(`After this, ${listing.spoken} would be ${Math.round(after * 100)} percent of your tokenized stocks.`);
+            }
+          }
+        }
         // Big orders on thin weekend pools fill worse than the quote; say so while it's still a proposal.
         if (amount_usd >= 250) {
           const cost = await within(impactAt(svc, listing.ticker, side, amount_usd, r.tokenPrice), 350);
