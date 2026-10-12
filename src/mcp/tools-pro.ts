@@ -24,6 +24,7 @@ import { addPlan, cadencePhrase, listPlans, MAX_PLANS, parseWeekday, planRecord,
 import { listingByTicker, resolveSymbol } from "../market/universe.js";
 import { listSubscriptions } from "../notify/push.js";
 import { readBasis } from "../chain/basis.js";
+import { depthLadder, sizeWithin } from "../chain/depth.js";
 
 /** Like tools.ts's `within`: an optional extra must never cost the voice turn its budget. */
 async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
@@ -35,6 +36,8 @@ async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
   }
 }
 
+const possessive = (name: string) => (name.endsWith("s") ? `${name}'` : `${name}'s`);
+const listJoin = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 const pctOf = (x: number) => `${(Math.abs(x) * 100).toFixed(1)} percent`;
 
 export interface ToolKit {
@@ -379,6 +382,60 @@ export function registerProTools(server: McpServer, svc: Services, caller: Calle
         return say(
           `${note}You paid ${usd(totalCost)} for what you hold, and it's ${upDown(totalGain)}${totalCost > 0 ? `, ${pctOf(totalGain / totalCost)}` : ""}, read from your wallet's history on Solana.${spread}${caveat}${partial}`,
           data,
+        );
+      }),
+  );
+
+  server.registerTool(
+    "market_depth",
+    {
+      title: "How much size the token market can take",
+      description:
+        "Real quotes from Jupiter (the router that would fill a trade) at $100, $1,000 and $10,000, for buying or selling one tokenized stock right now: how much over (or under) the token's price each size would fill. On weekends and at night these markets are thinner than the stock exchange. Use for 'how deep is the Tesla market?', 'can I buy 10 thousand dollars of Nvidia without moving it?', 'how liquid is Palantir right now?'.",
+      inputSchema: {
+        stock: z.string().min(1),
+        side: z.enum(["buy", "sell"]).optional().describe("Default buy."),
+      },
+      outputSchema: {
+        dataSource: z.enum(["jupiter", "sample"]),
+        ticker: z.string(),
+        side: z.enum(["buy", "sell"]),
+        tokenPrice: z.number(),
+        steps: z.array(z.object({ usd: z.number(), costPercent: z.number(), fillPrice: z.number() })),
+        under1PercentUsd: z.number().nullable(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ stock, side }) =>
+      guard(async () => {
+        const listing = resolveSymbol(stock);
+        if (!listing) return fail(`I don't have a tokenized stock for "${stock}".`);
+        const { readings, session } = await kit.allReadings();
+        const r = readings.find((x) => x.ticker === listing.ticker);
+        if (!r) return fail(`I don't have a price for ${listing.spoken} right now.`);
+        const s = side ?? "buy";
+        const depth = await within(depthLadder(svc, listing.ticker, s, r.tokenPrice), 1200);
+        if (!depth) return fail(`I'm still getting quotes for ${listing.spoken}. Ask me again in a few seconds.`);
+        const cost = (bps: number) => (bps < 5 ? "almost nothing" : `about ${(bps / 100).toFixed(bps < 100 ? 2 : 1)} percent`);
+        const ladder = depth.steps.map((st) => `${cost(st.impactBps)} for ${usd(st.usd)}`);
+        const fine = sizeWithin(depth, 100);
+        const verdict =
+          fine === null
+            ? "Even small trades are expensive right now; waiting for the market to open would likely fill better."
+            : fine === depth.steps.at(-1)!.usd
+              ? "It's deep enough for everyday sizes."
+              : `Up to about ${usd(fine)} costs under 1 percent; beyond that, splitting the trade${session.isRegularHours ? "" : " or waiting for the open"} would likely fill better.`;
+        const verb = s === "buy" ? "Buying" : "Selling";
+        return say(
+          `${depth.source === "sample" ? "Using sample data. " : ""}${verb} ${possessive(listing.spoken)} token right now costs ${listJoin(ladder)} over its price of ${usd(r.tokenPrice)}. ${verdict}`,
+          {
+            dataSource: depth.source,
+            ticker: listing.ticker,
+            side: s,
+            tokenPrice: r.tokenPrice,
+            steps: depth.steps.map((st) => ({ usd: st.usd, costPercent: st.impactBps / 100, fillPrice: Math.round(st.effectivePrice * 100) / 100 })),
+            under1PercentUsd: fine,
+          },
         );
       }),
   );

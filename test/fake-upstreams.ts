@@ -54,7 +54,10 @@ export function fakeUpstreams(state: FakeState) {
       const l = LISTINGS.find((x) => x.mint === (buying ? url.searchParams.get("outputMint") : url.searchParams.get("inputMint")))!;
       const { share, moveBps } = SAMPLE_BOARD[l.ticker];
       const price = share * (1 + moveBps / 10_000);
-      const out = buying ? (amount / 1e6 / price) * 0.997 * 1e8 : ((amount / 1e8) * price) * 0.997 * 1e6;
+      // Fills get worse with size, as on a real pool: 0.3% fee, plus 1% per $20k.
+      const sizeUsd = buying ? amount / 1e6 : (amount / 1e8) * price;
+      const keep = 0.997 - sizeUsd / 2_000_000;
+      const out = buying ? (amount / 1e6 / price) * keep * 1e8 : ((amount / 1e8) * price) * keep * 1e6;
       return json({ inAmount: String(amount), outAmount: String(Math.floor(out)), priceImpactPct: "0.0012", routePlan: [] });
     }
 

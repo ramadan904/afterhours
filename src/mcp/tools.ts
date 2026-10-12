@@ -38,6 +38,7 @@ import { fail, say, type Result } from "./result.js";
 import { registerProTools } from "./tools-pro.js";
 import { getGuardrails, inWindow, nextLocal, recordSpend, spentToday } from "../chain/guardrails.js";
 import { zoneParts } from "../market/zones.js";
+import { impactAt } from "../chain/depth.js";
 
 export interface Caller {
   sub: string;
@@ -945,6 +946,13 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           `${sampleNote(board)}A ${side} of ${usd(amount_usd)} of ${listing.spoken} at about ${usd(r.tokenPrice)} is ready for you to sign.`,
           `Open ${spokenUrl(svc.baseUrl, "/go")} and enter code ${spokenCode(intent.code)}. It expires in 15 minutes.`,
         ];
+        // Big orders on thin weekend pools fill worse than the quote; say so while it's still a proposal.
+        if (amount_usd >= 250) {
+          const cost = await within(impactAt(svc, listing.ticker, side, amount_usd, r.tokenPrice), 350);
+          if (cost && cost.impactBps >= 75) {
+            parts.push(`At this size you'd ${side === "buy" ? "pay" : "give up"} about ${(cost.impactBps / 100).toFixed(1)} percent ${side === "buy" ? "over" : "under"} the token's price, because the market is thin right now. A smaller trade would fill closer.`);
+          }
+        }
         if (r.kind === "overnight_move" && r.gapBps !== null) {
           const chasing = (side === "buy" && r.gapBps > 0) || (side === "sell" && r.gapBps < 0);
           if (chasing) {
