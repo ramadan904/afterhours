@@ -14,6 +14,7 @@ import { readTape } from "../market/tape.js";
 import { lastRegularClose } from "../market/session.js";
 import { listingByTicker, resolveSymbol } from "../market/universe.js";
 import { RateLimit } from "./limit.js";
+import { watchWallet } from "../notify/wallet-watch.js";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -49,6 +50,8 @@ export async function accountApi(svc: Services, request: Request, url: URL): Pro
       return json({ error: "That push subscription isn't from a supported browser push service." }, 400);
     }
     const devices = await addSubscription(svc, claims.sub, body.subscription);
+    // With a device to tell, the wallet's balances are watched for surprises.
+    if (claims.wallet) await watchWallet(svc, claims.sub, claims.wallet);
     return json({ ok: true, devices, max: MAX_SUBSCRIPTIONS });
   }
 

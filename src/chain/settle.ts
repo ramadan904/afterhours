@@ -16,6 +16,7 @@ import type { Services } from "../services.js";
 import { USDC, listingByTicker } from "../market/universe.js";
 import { confirmOnChain, findLanded, getIntent, saveIntent, swapLegs, type TradeIntent } from "./trade.js";
 import { readTransaction } from "./txmessage.js";
+import { noteSettled } from "../notify/wallet-watch.js";
 
 const SLIPPAGE_BPS = Number(process.env.TRADE_SLIPPAGE_BPS ?? 50);
 /** A signature that hasn't landed by now never will (blockhashes expire in ~90s). */
@@ -87,6 +88,7 @@ export async function refreshIntent(svc: Services, intent: TradeIntent): Promise
         intent.status = check.status;
         intent.error = check.error;
         await saveIntent(svc.store, intent, now);
+        await noteSettled(svc, intent);
         return intent;
       }
       // The reported signature may be bogus or dropped, while the wallet's real
@@ -118,6 +120,7 @@ async function settle(svc: Services, intent: TradeIntent, landed: { signature: s
   intent.status = landed.failed ? "failed" : "confirmed";
   intent.error = landed.failed ? "the swap failed on chain" : undefined;
   await saveIntent(svc.store, intent, svc.now());
+  await noteSettled(svc, intent);
   return intent;
 }
 
