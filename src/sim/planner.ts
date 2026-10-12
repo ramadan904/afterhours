@@ -32,7 +32,10 @@ export function redact(args: Record<string, unknown>): Record<string, unknown> {
 
 export interface Step {
   tool: string;
+  /** As shown on screen: secrets masked. */
   args: Record<string, unknown>;
+  /** As sent, for evaluation. Never rendered. */
+  rawArgs?: Record<string, unknown>;
   ms: number;
   text: string;
   isError: boolean;
@@ -95,7 +98,7 @@ export class McpSession {
     const content = (res.content ?? []) as { type: string; text?: string }[];
     const text = content.filter((c) => c.type === "text").map((c) => c.text).join(" ");
     const ui = res.isError ? null : await this.card(tool).catch(() => null);
-    return { tool, args: redact(args), ms, text, isError: Boolean(res.isError), structured: res.structuredContent ?? null, ui };
+    return { tool, args: redact(args), rawArgs: args, ms, text, isError: Boolean(res.isError), structured: res.structuredContent ?? null, ui };
   }
 
   async close() {
@@ -135,8 +138,29 @@ function subject(text: string): string {
 }
 
 /** Picks one tool and its arguments from what was said. Null when nothing matches. */
+/**
+ * Everyday ways of saying the same thing, folded into the words the rules
+ * below listen for: "grab me 15 dollars of Amazon" is a buy, "ping me if"
+ * is an alert, "keep an eye on" is a watchlist add.
+ */
+export function canonical(utterance: string): string {
+  let t = utterance.toLowerCase().trim();
+  const money = /\$\s*\d|\d+\s*(dollars?|bucks|usd)|\b(dollars?|bucks)\b/.test(t);
+  if (money) {
+    t = t.replace(/\b(pick up|grab|scoop up|get me|pick me up|load up on)\b/g, "buy").replace(/\b(dump|unload|offload|get rid of|cash out)\b/g, "sell");
+  }
+  return t
+    .replace(/\b(ping|buzz|text) me\b/g, "tell me")
+    .replace(/\bnight mode\b/g, "sleep mode")
+    .replace(/^(please )?(keep an eye on|keep tabs on)\b/, "watch")
+    .replace(/\bwall street\b/g, "the stock market")
+    .replace(/\bstop (alerting|notifying|warning) me about\b/g, "remove my alert for")
+    .replace(/\bcap my (daily )?(buying|spending)\b/g, "set my daily limit")
+    .replace(/\bhow (thin|thick)\b/g, "how deep");
+}
+
 export function route(utterance: string): { tool: string; args: Record<string, unknown> } | null {
-  const t = utterance.toLowerCase().trim();
+  const t = canonical(utterance);
 
   if (/\b(did|has|is)\b.*\b(trade|order|swap|buy|sale|purchase)\b.*\b(go through|done|complete|confirmed|status|happen)/.test(t) || /\btrade status\b/.test(t)) {
     const code = /\b(\d[\d\s]{4,10}\d)\b/.exec(t)?.[1]?.replace(/\s/g, "");
@@ -155,8 +179,8 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const named = resolveSymbol(t.replace(/\b(how deep|is|the|market|liquid|liquidity|depth|right now|without moving it)\b/g, " "));
     return { tool: "market_depth", args: { stock: named ? named.aliases[0] : stockIn(t), ...(/\bsell/.test(t) ? { side: "sell" } : {}) } };
   }
-  if (/\b(how much have i (made|lost)|what did i pay|am i up overall|my returns|cost basis|made on|lost on)\b/.test(t)) {
-    const named = resolveSymbol(t.replace(/\b(how much have i|made|lost|on|what did i pay|for|my|returns|cost basis)\b/g, " "));
+  if (/\b(how much have i (made|lost)|what did i pay|am i up overall|my returns|cost basis|made on|lost on|my (profit|gains?|losses|p&l|pnl))\b/.test(t)) {
+    const named = resolveSymbol(t.replace(/\b(how much have i|made|lost|on|what did i pay|for|my|returns|cost basis|profit|gains?|losses|what's|what is)\b/g, " "));
     return { tool: "my_returns", args: named ? { stock: named.aliases[0] } : {} };
   }
   if (/\brebalanc/.test(t) || /\bhow far\b.*\btarget\b/.test(t)) {
@@ -220,7 +244,9 @@ export function route(utterance: string): { tool: string; args: Record<string, u
     const cadence = every[4] || word === "month" || word === "monthly" ? "monthly" : word === "day" || word === "daily" ? "daily" : "weekly";
     const day = every[4] ?? (cadence === "weekly" && word !== "week" && word !== "weekly" ? word : undefined);
     const time = /\bat\s+(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?)/.exec(t)?.[1]?.trim();
-    const head = t.slice(0, every.index);
+    // "Buy 5 dollars of X every Monday" or "Every Monday buy 5 dollars of X".
+    const before = t.slice(0, every.index);
+    const head = /\b(buy|invest|purchase)\b/.test(before) ? before : t.slice(every.index + every[0].length).replace(/\bat\s+\d.*$/, "");
     const stock = head.replace(/^.*?\b(buy|invest|purchase)\b/, "").replace(/\$?\d+(\.\d+)?|dollars?|bucks|usd|worth|\b(of|me|some|in|into)\b/g, " ").trim();
     return { tool: "recurring_buy", args: { stock: stock ? stockIn(stock) : "unknown", amount_usd: amount(head) ?? 0, cadence, ...(day ? { day } : {}), ...(time ? { time } : {}) } };
   }
@@ -260,12 +286,20 @@ export function route(utterance: string): { tool: string; args: Record<string, u
   }
   const topic = explainTopic(t);
   if (topic) return { tool: "explain", args: { topic } };
+  // About the night: one named stock is a stock check; otherwise it's the briefing.
+  if (/\b(overnight|last night|while i (was )?(asleep|sleeping|slept))\b/.test(t)) {
+    const named = resolveSymbol(t.replace(/\b(overnight|last night|my stocks)\b/g, " "));
+    return named ? { tool: "check_stock", args: { stock: named.aliases[0] } } : { tool: "overnight_brief", args: {} };
+  }
   if (/\b(portfolio|my (stocks|holdings|positions|wallet)|what do i own|how much am i (up|down))\b/.test(t)) return { tool: "my_portfolio", args: {} };
-  if (/\b(market|stock market)\b.*\b(open|closed|close)\b|\bwhen does\b.*\bopen\b/.test(t)) return { tool: "market_status", args: {} };
-  if (/\b(overnight|while i (was )?(asleep|sleeping|slept)|briefing|brief|what happened|what moved|anything i should know|how are (stocks|markets)|weekend)\b/.test(t)) {
+  if (/\b(market|stock market)\b.*\b(open|closed|close)\b|\b(when|what time) does\b.*\bopen\b/.test(t)) return { tool: "market_status", args: {} };
+  if (/\b(overnight|while i (was )?(asleep|sleeping|slept)|briefing|brief|what happened|what moved|anything i should know|how are (the )?(stocks|markets)|weekend)\b/.test(t)) {
     return { tool: "overnight_brief", args: {} };
   }
   if (/\b(how('s| is)|what('s| is)|check|price|trading|rich|cheap|doing)\b/.test(t)) return { tool: "check_stock", args: { stock: stockIn(t) } };
+  // A stock named with nothing else asked of it: "Apple, up or down since Friday?"
+  const named = resolveSymbol(t);
+  if (named) return { tool: "check_stock", args: { stock: named.aliases[0] } };
   return null;
 }
 

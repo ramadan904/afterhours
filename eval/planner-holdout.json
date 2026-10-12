@@ -1,0 +1,229 @@
+{
+ "about": "Held out: written after the scripted planner was tuned on planner.json, and never used to tune it. Its score is the honest one.",
+ "cases": [
+  {
+   "say": "Morning, what's the damage overnight?",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "Catch me up on the markets",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "Where's Amazon trading?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "AMZN"
+   }
+  },
+  {
+   "say": "Give me a quote on Meta",
+   "tool": "check_stock",
+   "args": {
+    "stock": "META"
+   }
+  },
+  {
+   "say": "Tesla?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "What's my balance?",
+   "tool": "my_portfolio"
+  },
+  {
+   "say": "Snag 20 dollars of Google",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "GOOGL",
+    "side": "buy",
+    "amount_usd": 20
+   }
+  },
+  {
+   "say": "I want to buy 75 dollars of Broadcom",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "AVGO",
+    "side": "buy",
+    "amount_usd": 75
+   }
+  },
+  {
+   "say": "Sell all but keep 10 dollars of Apple",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "AAPL",
+    "side": "sell"
+   }
+  },
+  {
+   "say": "Get rid of 30 dollars of Intel",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "INTC",
+    "side": "sell",
+    "amount_usd": 30
+   }
+  },
+  {
+   "say": "Heads up me if Nvidia falls under 190",
+   "tool": "set_alert",
+   "args": {
+    "stock": "NVDA",
+    "price": 190
+   }
+  },
+  {
+   "say": "Let me know when Palantir moves 4 percent",
+   "tool": "set_alert",
+   "args": {
+    "stock": "PLTR",
+    "percent": 4
+   }
+  },
+  {
+   "say": "Which alerts are set?",
+   "tool": "list_alerts"
+  },
+  {
+   "say": "Kill the Apple alert",
+   "tool": "remove_alert",
+   "args": {
+    "stock": "AAPL"
+   }
+  },
+  {
+   "say": "Is my Nvidia order done?",
+   "tool": "trade_status"
+  },
+  {
+   "say": "Never mind that trade",
+   "tool": "cancel_trade"
+  },
+  {
+   "say": "I'm based in Singapore",
+   "tool": "set_timezone",
+   "args": {
+    "place": "singapore"
+   }
+  },
+  {
+   "say": "Follow AMD",
+   "tool": "edit_watchlist",
+   "args": {
+    "add": [
+     "AMD"
+    ]
+   }
+  },
+  {
+   "say": "Take Walmart off my watchlist",
+   "tool": "edit_watchlist",
+   "args": {
+    "remove": [
+     "WMT"
+    ]
+   }
+  },
+  {
+   "say": "Max 150 dollars of buying per day",
+   "tool": "set_spending_limit",
+   "args": {
+    "daily_usd": 150
+   }
+  },
+  {
+   "say": "No trading after 11 at night",
+   "tool": "set_sleep_mode",
+   "args": {
+    "on": true
+   }
+  },
+  {
+   "say": "Every month on the 15th put 50 dollars into the S&P",
+   "tool": "recurring_buy",
+   "args": {
+    "stock": "SPY",
+    "amount_usd": 50,
+    "cadence": "monthly",
+    "day": "15"
+   }
+  },
+  {
+   "say": "Buy 10 dollars of Microsoft weekly",
+   "tool": "recurring_buy",
+   "args": {
+    "stock": "MSFT",
+    "amount_usd": 10,
+    "cadence": "weekly"
+   }
+  },
+  {
+   "say": "Am I making money on Apple?",
+   "tool": "my_returns",
+   "args": {
+    "stock": "AAPL"
+   }
+  },
+  {
+   "say": "Is there enough liquidity in Tesla for a big order?",
+   "tool": "market_depth",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "Split me 70 S&P 30 gold",
+   "tool": "set_target_allocation",
+   "args": {
+    "targets": [
+     {
+      "stock": "SPY",
+      "percent": 70
+     },
+     {
+      "stock": "GLD",
+      "percent": 30
+     }
+    ]
+   }
+  },
+  {
+   "say": "Am I off my target allocation?",
+   "tool": "rebalance"
+  },
+  {
+   "say": "How did Tesla open compared to the token?",
+   "tool": "how_did_the_open_go",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "Recap my week",
+   "tool": "weekly_recap"
+  },
+  {
+   "say": "What's the difference between the token and the share?",
+   "tool": "explain",
+   "args": {
+    "topic": "price_gap"
+   }
+  },
+  {
+   "say": "Change my PIN",
+   "tool": "set_trade_pin"
+  },
+  {
+   "say": "Send me the news every morning at 8",
+   "tool": "schedule_briefing",
+   "args": {
+    "time": "8"
+   }
+  }
+ ]
+}

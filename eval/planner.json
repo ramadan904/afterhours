@@ -1,0 +1,948 @@
+{
+ "about": "Utterances a person might say, the tool a planner should pick, and the arguments that matter. Includes paraphrases the scripted planner was never tuned on, so its score is honest.",
+ "cases": [
+  {
+   "say": "What happened overnight?",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "What did I miss while I was asleep?",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "Give me my morning briefing",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "Anything I should know?",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "How are stocks doing this weekend?",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "What moved over the weekend?",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "Brief me",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "How are the markets?",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "Is the stock market open?",
+   "tool": "market_status"
+  },
+  {
+   "say": "When does the market open?",
+   "tool": "market_status"
+  },
+  {
+   "say": "Is the market closed today?",
+   "tool": "market_status"
+  },
+  {
+   "say": "When does the stock market open on Monday?",
+   "tool": "market_status"
+  },
+  {
+   "say": "How's Tesla doing?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "What's Apple at?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "AAPL"
+   }
+  },
+  {
+   "say": "Is the Nvidia token trading rich?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "NVDA"
+   }
+  },
+  {
+   "say": "Check Coinbase",
+   "tool": "check_stock",
+   "args": {
+    "stock": "COIN"
+   }
+  },
+  {
+   "say": "How is the S&P doing?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "SPY"
+   }
+  },
+  {
+   "say": "What's the price of Microsoft stock?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "MSFT"
+   }
+  },
+  {
+   "say": "How's Palantir doing?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "PLTR"
+   }
+  },
+  {
+   "say": "Is Netflix cheap right now?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "NFLX"
+   }
+  },
+  {
+   "say": "How's coke doing?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "KO"
+   }
+  },
+  {
+   "say": "What's Bank of America trading at?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "BAC"
+   }
+  },
+  {
+   "say": "How's the Nasdaq?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "QQQ"
+   }
+  },
+  {
+   "say": "How's gold doing?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "GLD"
+   }
+  },
+  {
+   "say": "How's my portfolio?",
+   "tool": "my_portfolio"
+  },
+  {
+   "say": "What do I own?",
+   "tool": "my_portfolio"
+  },
+  {
+   "say": "How much am I up?",
+   "tool": "my_portfolio"
+  },
+  {
+   "say": "How are my stocks doing?",
+   "tool": "my_portfolio"
+  },
+  {
+   "say": "How much have I made on Nvidia?",
+   "tool": "my_returns",
+   "args": {
+    "stock": "NVDA"
+   }
+  },
+  {
+   "say": "What did I pay for my Tesla?",
+   "tool": "my_returns",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "Am I up overall?",
+   "tool": "my_returns"
+  },
+  {
+   "say": "How much have I lost on Apple?",
+   "tool": "my_returns",
+   "args": {
+    "stock": "AAPL"
+   }
+  },
+  {
+   "say": "Tell me if Coinbase moves more than 3 percent",
+   "tool": "set_alert",
+   "args": {
+    "stock": "COIN",
+    "percent": 3
+   }
+  },
+  {
+   "say": "Let me know if Tesla goes above 400",
+   "tool": "set_alert",
+   "args": {
+    "stock": "TSLA",
+    "price": 400
+   }
+  },
+  {
+   "say": "Alert me when Nvidia drops below 200 dollars",
+   "tool": "set_alert",
+   "args": {
+    "stock": "NVDA",
+    "price": 200
+   }
+  },
+  {
+   "say": "Warn me if Apple moves 2 percent",
+   "tool": "set_alert",
+   "args": {
+    "stock": "AAPL",
+    "percent": 2
+   }
+  },
+  {
+   "say": "Notify me if the S&P moves more than 1 percent",
+   "tool": "set_alert",
+   "args": {
+    "stock": "SPY",
+    "percent": 1
+   }
+  },
+  {
+   "say": "What alerts do I have?",
+   "tool": "list_alerts"
+  },
+  {
+   "say": "List my alerts",
+   "tool": "list_alerts"
+  },
+  {
+   "say": "Remove my Tesla alert",
+   "tool": "remove_alert",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "Delete the Coinbase alert",
+   "tool": "remove_alert",
+   "args": {
+    "stock": "COIN"
+   }
+  },
+  {
+   "say": "Buy 25 dollars of Apple",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "AAPL",
+    "side": "buy",
+    "amount_usd": 25
+   }
+  },
+  {
+   "say": "Sell 100 dollars of Nvidia",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "NVDA",
+    "side": "sell",
+    "amount_usd": 100
+   }
+  },
+  {
+   "say": "Buy fifty dollars of Tesla",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "TSLA",
+    "side": "buy",
+    "amount_usd": 50
+   }
+  },
+  {
+   "say": "Purchase 10 dollars of the Nasdaq fund",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "QQQ",
+    "side": "buy",
+    "amount_usd": 10
+   }
+  },
+  {
+   "say": "Buy 50 dollars of Tesla if it drops below 360",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "TSLA",
+    "side": "buy",
+    "amount_usd": 50,
+    "trigger_price": 360
+   }
+  },
+  {
+   "say": "Sell 200 dollars of Coinbase if it goes above 210",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "COIN",
+    "side": "sell",
+    "amount_usd": 200,
+    "trigger_price": 210
+   }
+  },
+  {
+   "say": "Buy 30 dollars of Netflix",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "NFLX",
+    "side": "buy",
+    "amount_usd": 30
+   }
+  },
+  {
+   "say": "make it 50",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "AAPL",
+    "amount_usd": 50
+   },
+   "context": [
+    "Buy 25 dollars of Apple"
+   ]
+  },
+  {
+   "say": "Did my trade go through?",
+   "tool": "trade_status"
+  },
+  {
+   "say": "Has my order been confirmed?",
+   "tool": "trade_status"
+  },
+  {
+   "say": "Cancel my order",
+   "tool": "cancel_trade"
+  },
+  {
+   "say": "Forget the Tesla buy",
+   "tool": "cancel_trade"
+  },
+  {
+   "say": "Does the weekend move usually hold for Tesla?",
+   "tool": "open_track_record",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "Can I trust the Nvidia token overnight?",
+   "tool": "open_track_record",
+   "args": {
+    "stock": "NVDA"
+   }
+  },
+  {
+   "say": "I'm in London",
+   "tool": "set_timezone",
+   "args": {
+    "place": "london"
+   }
+  },
+  {
+   "say": "My time zone is Lagos",
+   "tool": "set_timezone",
+   "args": {
+    "place": "lagos"
+   }
+  },
+  {
+   "say": "Use Tokyo time",
+   "tool": "set_timezone",
+   "args": {
+    "place": "tokyo"
+   }
+  },
+  {
+   "say": "What can you do?",
+   "tool": "explain",
+   "args": {
+    "topic": "what_you_can_do"
+   }
+  },
+  {
+   "say": "Why is the token different from the stock?",
+   "tool": "explain",
+   "args": {
+    "topic": "price_gap"
+   }
+  },
+  {
+   "say": "What are tokenized stocks?",
+   "tool": "explain",
+   "args": {
+    "topic": "tokenized_stocks"
+   }
+  },
+  {
+   "say": "Is it safe to trade by voice?",
+   "tool": "explain",
+   "args": {
+    "topic": "trading_safety"
+   }
+  },
+  {
+   "say": "Add Netflix to my watchlist",
+   "tool": "edit_watchlist",
+   "args": {
+    "add": [
+     "NFLX"
+    ]
+   }
+  },
+  {
+   "say": "Watch Palantir and AMD",
+   "tool": "edit_watchlist",
+   "args": {
+    "add": [
+     "PLTR",
+     "AMD"
+    ]
+   }
+  },
+  {
+   "say": "Put coke on my watch list",
+   "tool": "edit_watchlist",
+   "args": {
+    "add": [
+     "KO"
+    ]
+   }
+  },
+  {
+   "say": "Stop watching Intel",
+   "tool": "edit_watchlist",
+   "args": {
+    "remove": [
+     "INTC"
+    ]
+   }
+  },
+  {
+   "say": "Remove Netflix from my watchlist",
+   "tool": "edit_watchlist",
+   "args": {
+    "remove": [
+     "NFLX"
+    ]
+   }
+  },
+  {
+   "say": "How's my watchlist doing?",
+   "tool": "my_watchlist"
+  },
+  {
+   "say": "What am I watching?",
+   "tool": "my_watchlist"
+  },
+  {
+   "say": "Brief me every weekday at 7",
+   "tool": "schedule_briefing",
+   "args": {
+    "time": "7",
+    "days": "weekdays"
+   }
+  },
+  {
+   "say": "Send my briefing every day at 6:30 am",
+   "tool": "schedule_briefing",
+   "args": {
+    "time": "6:30 am",
+    "days": "daily"
+   }
+  },
+  {
+   "say": "Stop my morning briefing",
+   "tool": "schedule_briefing",
+   "args": {
+    "off": true
+   }
+  },
+  {
+   "say": "When is my briefing?",
+   "tool": "schedule_briefing"
+  },
+  {
+   "say": "Don't let me spend more than 200 dollars a day",
+   "tool": "set_spending_limit",
+   "args": {
+    "daily_usd": 200
+   }
+  },
+  {
+   "say": "What's my spending limit?",
+   "tool": "set_spending_limit"
+  },
+  {
+   "say": "Remove my spending limit",
+   "tool": "set_spending_limit",
+   "args": {
+    "remove": true
+   }
+  },
+  {
+   "say": "Set a daily limit of 100 dollars",
+   "tool": "set_spending_limit",
+   "args": {
+    "daily_usd": 100
+   }
+  },
+  {
+   "say": "Don't let me trade at night",
+   "tool": "set_sleep_mode",
+   "args": {
+    "on": true
+   }
+  },
+  {
+   "say": "Turn on sleep mode from midnight to 6 am",
+   "tool": "set_sleep_mode",
+   "args": {
+    "on": true,
+    "from": "midnight",
+    "until": "6 am"
+   }
+  },
+  {
+   "say": "Turn off sleep mode",
+   "tool": "set_sleep_mode",
+   "args": {
+    "on": false
+   }
+  },
+  {
+   "say": "Is sleep mode on?",
+   "tool": "set_sleep_mode"
+  },
+  {
+   "say": "Set a trade PIN 4 7 1 9",
+   "tool": "set_trade_pin",
+   "args": {
+    "new_pin": "4719"
+   }
+  },
+  {
+   "say": "Remove my trade PIN",
+   "tool": "set_trade_pin",
+   "args": {
+    "remove": true
+   }
+  },
+  {
+   "say": "four seven one nine",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "TSLA",
+    "pin": "4719"
+   },
+   "context": [
+    "Buy 25 dollars of Tesla"
+   ]
+  },
+  {
+   "say": "Buy 25 dollars of the S&P every Monday",
+   "tool": "recurring_buy",
+   "args": {
+    "stock": "SPY",
+    "amount_usd": 25,
+    "cadence": "weekly",
+    "day": "monday"
+   }
+  },
+  {
+   "say": "Buy 10 dollars of Nvidia every day at 9",
+   "tool": "recurring_buy",
+   "args": {
+    "stock": "NVDA",
+    "amount_usd": 10,
+    "cadence": "daily",
+    "time": "9"
+   }
+  },
+  {
+   "say": "Invest 100 dollars in Apple on the 1st of every month",
+   "tool": "recurring_buy",
+   "args": {
+    "stock": "AAPL",
+    "amount_usd": 100,
+    "cadence": "monthly",
+    "day": "1"
+   }
+  },
+  {
+   "say": "Buy 20 dollars of Tesla every Friday",
+   "tool": "recurring_buy",
+   "args": {
+    "stock": "TSLA",
+    "amount_usd": 20,
+    "cadence": "weekly",
+    "day": "friday"
+   }
+  },
+  {
+   "say": "What recurring buys do I have?",
+   "tool": "my_recurring_buys"
+  },
+  {
+   "say": "Stop my weekly S&P buy",
+   "tool": "stop_recurring_buy",
+   "args": {
+    "stock": "SPY"
+   }
+  },
+  {
+   "say": "Cancel my recurring buys",
+   "tool": "stop_recurring_buy"
+  },
+  {
+   "say": "How deep is the Tesla market?",
+   "tool": "market_depth",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "How liquid is Palantir right now?",
+   "tool": "market_depth",
+   "args": {
+    "stock": "PLTR"
+   }
+  },
+  {
+   "say": "Can I buy 10 thousand dollars of Nvidia without moving it?",
+   "tool": "market_depth",
+   "args": {
+    "stock": "NVDA"
+   }
+  },
+  {
+   "say": "Keep me 60 percent S&P and 40 percent Nasdaq",
+   "tool": "set_target_allocation",
+   "args": {
+    "targets": [
+     {
+      "stock": "SPY",
+      "percent": 60
+     },
+     {
+      "stock": "QQQ",
+      "percent": 40
+     }
+    ]
+   }
+  },
+  {
+   "say": "My target mix is 50% Nvidia, 25% Apple and 25% gold",
+   "tool": "set_target_allocation",
+   "args": {
+    "targets": [
+     {
+      "stock": "NVDA",
+      "percent": 50
+     },
+     {
+      "stock": "AAPL",
+      "percent": 25
+     },
+     {
+      "stock": "GLD",
+      "percent": 25
+     }
+    ]
+   }
+  },
+  {
+   "say": "What's my target mix?",
+   "tool": "set_target_allocation"
+  },
+  {
+   "say": "How far am I from my target?",
+   "tool": "rebalance"
+  },
+  {
+   "say": "Rebalance my portfolio",
+   "tool": "rebalance"
+  },
+  {
+   "say": "Yes, rebalance now",
+   "tool": "rebalance",
+   "args": {
+    "confirm": true
+   }
+  },
+  {
+   "say": "How did the open go?",
+   "tool": "how_did_the_open_go"
+  },
+  {
+   "say": "Did Tesla's weekend move hold?",
+   "tool": "how_did_the_open_go",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "Was the token right this morning?",
+   "tool": "how_did_the_open_go"
+  },
+  {
+   "say": "How was my week?",
+   "tool": "weekly_recap"
+  },
+  {
+   "say": "Send me a weekly recap every Sunday",
+   "tool": "weekly_recap",
+   "args": {
+    "push": true
+   }
+  },
+  {
+   "say": "Stop the weekly recap",
+   "tool": "weekly_recap",
+   "args": {
+    "push": false
+   }
+  },
+  {
+   "say": "Yo, what's Tesla up to",
+   "tool": "check_stock",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "Is Apple up or down since Friday?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "AAPL"
+   }
+  },
+  {
+   "say": "How much is my wallet worth?",
+   "tool": "my_portfolio"
+  },
+  {
+   "say": "Pick up 40 bucks of Microsoft for me",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "MSFT",
+    "side": "buy",
+    "amount_usd": 40
+   }
+  },
+  {
+   "say": "Grab me 15 dollars of Amazon",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "AMZN",
+    "side": "buy",
+    "amount_usd": 15
+   }
+  },
+  {
+   "say": "Dump 60 dollars of Coinbase",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "COIN",
+    "side": "sell",
+    "amount_usd": 60
+   }
+  },
+  {
+   "say": "Ping me if Meta jumps 5 percent",
+   "tool": "set_alert",
+   "args": {
+    "stock": "META",
+    "percent": 5
+   }
+  },
+  {
+   "say": "I live in Mumbai",
+   "tool": "set_timezone",
+   "args": {
+    "place": "mumbai"
+   }
+  },
+  {
+   "say": "What time does Wall Street open?",
+   "tool": "market_status"
+  },
+  {
+   "say": "Did anything big happen with my stocks last night?",
+   "tool": "overnight_brief"
+  },
+  {
+   "say": "Keep an eye on Shopify for me",
+   "tool": "edit_watchlist",
+   "args": {
+    "add": [
+     "SHOP"
+    ]
+   }
+  },
+  {
+   "say": "Cap my daily buying at 300 dollars",
+   "tool": "set_spending_limit",
+   "args": {
+    "daily_usd": 300
+   }
+  },
+  {
+   "say": "Every Wednesday buy 5 dollars of Strategy",
+   "tool": "recurring_buy",
+   "args": {
+    "stock": "MSTR",
+    "amount_usd": 5,
+    "cadence": "weekly",
+    "day": "wednesday"
+   }
+  },
+  {
+   "say": "What's my profit on Tesla?",
+   "tool": "my_returns",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "How thin is the Coinbase market?",
+   "tool": "market_depth",
+   "args": {
+    "stock": "COIN"
+   }
+  },
+  {
+   "say": "Was the overnight move right about Nvidia?",
+   "tool": "how_did_the_open_go",
+   "args": {
+    "stock": "NVDA"
+   }
+  },
+  {
+   "say": "Give me the week in review",
+   "tool": "weekly_recap"
+  },
+  {
+   "say": "Explain how voice trades stay safe",
+   "tool": "explain",
+   "args": {
+    "topic": "trading_safety"
+   }
+  },
+  {
+   "say": "Is it Tesla moving or the whole market?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "How's the Russell doing?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "IWM"
+   }
+  },
+  {
+   "say": "Buy 25 dollars of JP Morgan",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "JPM",
+    "side": "buy",
+    "amount_usd": 25
+   }
+  },
+  {
+   "say": "How's Eli Lilly?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "LLY"
+   }
+  },
+  {
+   "say": "What's TSMC trading at?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "TSM"
+   }
+  },
+  {
+   "say": "Sell 50 dollars of Palantir",
+   "tool": "propose_trade",
+   "args": {
+    "stock": "PLTR",
+    "side": "sell",
+    "amount_usd": 50
+   }
+  },
+  {
+   "say": "Tell me when Apple hits 350",
+   "tool": "set_alert",
+   "args": {
+    "stock": "AAPL",
+    "price": 350
+   }
+  },
+  {
+   "say": "Stop alerting me about Tesla",
+   "tool": "remove_alert",
+   "args": {
+    "stock": "TSLA"
+   }
+  },
+  {
+   "say": "Add Disney and Nike to my watchlist",
+   "tool": "edit_watchlist",
+   "args": {
+    "add": [
+     "DIS",
+     "NKE"
+    ]
+   }
+  },
+  {
+   "say": "Wake me with a briefing at 6 every day",
+   "tool": "schedule_briefing",
+   "args": {
+    "time": "6",
+    "days": "daily"
+   }
+  },
+  {
+   "say": "What happened with Nvidia overnight?",
+   "tool": "check_stock",
+   "args": {
+    "stock": "NVDA"
+   }
+  },
+  {
+   "say": "Should I be worried about my portfolio?",
+   "tool": "my_portfolio"
+  },
+  {
+   "say": "Turn on night mode",
+   "tool": "set_sleep_mode",
+   "args": {
+    "on": true
+   }
+  },
+  {
+   "say": "What did I do on my account?",
+   "tool": "my_activity"
+  },
+  {
+   "say": "Delete all my data",
+   "tool": "delete_my_data"
+  }
+ ]
+}

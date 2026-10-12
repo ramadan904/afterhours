@@ -13,6 +13,13 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # The scripted planner is gated on the set it was tuned on, and its
+      # score on the held-out set is reported as it is: that gap is why the
+      # real planner is Claude on Bedrock.
+      - name: Planner eval (scripted rules)
+        run: |
+          npx tsx scripts/eval-planner.ts --min 0.95
+          npx tsx scripts/eval-planner.ts --set planner-holdout
   # Runs the server against live mainnet data (Jupiter + Solana RPC) and the
   # Alexa+ conformance checks, so every push proves the live path, not just
   # the sample one.
@@ -65,3 +72,29 @@ jobs:
       - run: npx playwright-core install --with-deps chromium
       - run: AFTERHOURS_DATA=sample npx tsx src/node.ts & sleep 5
       - run: node e2e/a11y.mjs
+
+  # The real planner, Claude on Amazon Bedrock, against both sets. Runs when
+  # the repository has an AWS role to assume (Settings → Variables:
+  # AWS_ROLE_ARN, optionally AWS_REGION), via GitHub OIDC; no stored keys.
+  planner-bedrock:
+    if: ${{ vars.AWS_ROLE_ARN != '' }}
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      - run: npx tsx scripts/eval-planner.ts --bedrock --json eval-bedrock.json
+      - run: npx tsx scripts/eval-planner.ts --bedrock --set planner-holdout --json eval-bedrock-holdout.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: planner-eval-bedrock
+          path: eval-bedrock*.json
