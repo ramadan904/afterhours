@@ -11,6 +11,7 @@
  * Anything else (an internal address, say) is refused at subscribe time.
  */
 
+import { count } from "../obs/metrics.js";
 import webpush from "web-push";
 import type { Services } from "../services.js";
 
@@ -146,5 +147,6 @@ export async function notify(svc: Services, sub: string, notice: Notice): Promis
     }),
   );
   if (dead.length) await svc.store.set(key(sub), subscriptions.filter((s) => !dead.includes(s.endpoint)));
+  if (delivered) count("PushSent", delivered);
   return delivered;
 }

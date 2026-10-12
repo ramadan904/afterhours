@@ -113,7 +113,15 @@ Afterhours deploys to AWS with one command (`scripts/deploy-aws.sh` → `infra/a
   SDK (`AnthropicBedrockMantle`). It turns the MCP server's `tools/list` into tool definitions and runs the tool loop
   (`src/sim/planner.ts`). It has a client-side refusal fallback and drops back to the scripted planner if Bedrock is
   unavailable. The loop is tested against a scripted stand-in for Claude (`test/planner.test.ts`).
-- **TODO before submitting:** deploy the stack, enable Bedrock model access, and capture a `planner: bedrock` trace.
+- **Amazon CloudWatch:** the server publishes raw per-tool latencies (true p95s, not averages) and counters for tape
+  samples, alerts fired, pushes sent and trades confirmed (`src/obs/metrics.ts`). The stack draws a dashboard against
+  the 500 ms budget and alarms, through **Amazon SNS**, when p95 passes 400 ms or the tape sampler goes quiet for 15
+  minutes (which would mean alerts, briefings and settlement have stopped).
+- **Measured planner:** `scripts/eval-planner.ts --bedrock` scores Claude on Bedrock on 171 utterances (139 + 32
+  held out) by tool and arguments; a CI job runs it through GitHub OIDC when an AWS role is configured. The scripted
+  fallback scores 99% on what it was tuned on and 50% held out, which is the case for Bedrock in one number.
+- **TODO before submitting:** deploy the stack, enable Bedrock model access, run the Bedrock eval, and capture a
+  `planner: bedrock` trace.
 
 ## Open Source
 

@@ -29,8 +29,14 @@ Parameters:
     Default: ""
     Description: Comma-separated redirect URIs Alexa shows for account linking (optional).
 
+  AlarmEmail:
+    Type: String
+    Default: ""
+    Description: Email for alarm notifications (optional; confirm the subscription email AWS sends).
+
 Conditions:
   HasPublicUrl: !Not [!Equals [!Ref PublicUrl, ""]]
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, ""]]
 
 Resources:
   # Key/value state: OAuth codes, refresh tokens, alerts, the tape, trade proposals.
@@ -109,6 +115,12 @@ Resources:
                   - bedrock:InvokeModelWithResponseStream
                   - bedrock-mantle:*
                 Resource: "*"
+              # Metrics are published to the Afterhours namespace only.
+              - Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals: { "cloudwatch:namespace": Afterhours }
 
   # Lets App Runner pull the image from ECR.
   AccessRole:
@@ -143,6 +155,7 @@ Resources:
               - { Name: BEDROCK_MODEL, Value: !Ref BedrockModel }
               - { Name: ALEXA_CLIENT_ID, Value: !Ref AlexaClientId }
               - { Name: ALEXA_REDIRECT_URIS, Value: !Ref AlexaRedirectUris }
+              - { Name: METRICS, Value: cloudwatch }
             RuntimeEnvironmentSecrets:
               - { Name: AUTH_SECRET, Value: !Ref AuthSecret }
               - { Name: CRON_SECRET, Value: !Ref CronSecret }
@@ -210,6 +223,77 @@ Resources:
           Arn: !GetAtt TapeDestination.Arn
           RoleArn: !GetAtt TapeRole.Arn
 
+  # Watching it: alarms go to an SNS topic (and an email, when given), and a
+  # dashboard shows latency per tool against the 500 ms budget, the tape
+  # sampler's heartbeat, and what it set off.
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Afterhours alarms
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  LatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Tool p95 latency above 400 ms (Alexa+ allows 500 ms per MCP round trip, network included).
+      Namespace: Afterhours
+      MetricName: ToolLatency
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      Threshold: 400
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  SamplerAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasPublicUrl
+    Properties:
+      AlarmDescription: No tape samples for 15 minutes. Alerts, briefings, recurring buys and settlement have stopped.
+      Namespace: Afterhours
+      MetricName: TapeSamples
+      Statistic: Sum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "afterhours-${AWS::Region}"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {"type": "metric", "x": 0, "y": 0, "width": 12, "height": 6, "properties": {
+              "title": "Tool latency (ms), all tools", "region": "${AWS::Region}", "view": "timeSeries", "stat": "p95", "period": 300,
+              "metrics": [["Afterhours", "ToolLatency", {"stat": "p50", "label": "p50"}], ["Afterhours", "ToolLatency", {"stat": "p95", "label": "p95"}], ["Afterhours", "ToolLatency", {"stat": "p99", "label": "p99"}]],
+              "annotations": {"horizontal": [{"label": "Alexa+ budget", "value": 500}, {"label": "alarm", "value": 400}]}}},
+            {"type": "metric", "x": 12, "y": 0, "width": 12, "height": 6, "properties": {
+              "title": "p95 by tool (ms)", "region": "${AWS::Region}", "view": "timeSeries", "period": 300,
+              "metrics": [[{"expression": "SEARCH('{Afterhours,Tool} MetricName=\"ToolLatency\"', 'p95', 300)", "id": "byTool"}]]}},
+            {"type": "metric", "x": 0, "y": 6, "width": 12, "height": 6, "properties": {
+              "title": "Tape sampler heartbeat (per 5 min)", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 300,
+              "metrics": [["Afterhours", "TapeSamples"]]}},
+            {"type": "metric", "x": 12, "y": 6, "width": 12, "height": 6, "properties": {
+              "title": "What it set off", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 3600,
+              "metrics": [["Afterhours", "AlertsFired"], ["Afterhours", "PushSent"], ["Afterhours", "TradesConfirmed"], ["Afterhours", "ToolErrors"]]}}
+          ]
+        }
+
 Outputs:
   ServiceUrl:
     Description: App Runner HTTPS host (no scheme)
@@ -219,6 +303,9 @@ Outputs:
     Value: !If [HasPublicUrl, !Sub "${PublicUrl}/mcp", !Sub "https://${Service.ServiceUrl}/mcp"]
   Table:
     Value: !Ref Table
+  Dashboard:
+    Description: CloudWatch dashboard
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=afterhours-${AWS::Region}"
   AlexaClientSecretArn:
     Description: Read with aws secretsmanager get-secret-value, then paste into the Alexa console
     Value: !Ref AlexaClientSecret

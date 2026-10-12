@@ -25,6 +25,7 @@ import { notify } from "../notify/push.js";
 import { alertNotice, settledTradeNotice, triggeredTradeNotice } from "../notify/notices.js";
 import { settlePending } from "../chain/settle.js";
 import { logActivity } from "../account/activity.js";
+import { count } from "../obs/metrics.js";
 import { sendDueBriefings } from "../notify/briefing.js";
 import { runDuePlans } from "../chain/recurring.js";
 import { checkWallets } from "../notify/wallet-watch.js";
@@ -118,6 +119,8 @@ export async function recordTape(svc: Services): Promise<{ recorded: boolean; fi
   const readings = readingsFrom(board, now);
   const firedAlerts = await evaluateAll(svc.store, readings, now);
   const fired = firedAlerts.length;
+  count("TapeSamples");
+  if (fired) count("AlertsFired", fired);
   // Tell people now, not at their next briefing. Push failures never stop the tape.
   const send = async (sub: string, make: (zone: Awaited<ReturnType<typeof getZone>>) => Parameters<typeof notify>[2]) =>
     notify(svc, sub, make(await getZone(svc.store, sub))).catch(() => 0);

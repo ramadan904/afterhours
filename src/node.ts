@@ -2,6 +2,7 @@
  * Runs Afterhours as a plain Node HTTP server (local dev, Docker, App Runner).
  */
 
+import { startMetrics } from "./obs/metrics.js";
 import { createServer } from "node:http";
 import { createApp } from "./http/app.js";
 import { servicesFromEnv } from "./services.js";
@@ -16,6 +17,8 @@ const MAX_BODY_BYTES = 1024 * 1024;
 // A long-running process can keep the price cache warm, so even the first
 // voice request after a quiet spell is served from memory.
 void svc.prices.warm?.();
+// CloudWatch metrics when METRICS=cloudwatch (set by the AWS stack).
+void startMetrics().then((on) => on && console.log("Publishing metrics to CloudWatch (namespace Afterhours)."));
 setInterval(() => void svc.prices.warm?.(), 8_000).unref();
 
 // The overnight tape: sample the board and check everyone's alerts on a timer.

@@ -31,6 +31,7 @@ import { companionPage } from "./companion.js";
 import { icon, manifest, serviceWorker } from "./pwa.js";
 import { readTape, recordTape } from "../market/tape.js";
 import { ACTION_HEADERS, actionsApi, isActionPath } from "./actions-api.js";
+import { maybeFlush } from "../obs/metrics.js";
 import { toolStats, uptimeSeconds } from "./stats.js";
 import { timingSafeEqual } from "node:crypto";
 
@@ -135,7 +136,7 @@ async function cronTape(svc: Services, request: Request): Promise<Response> {
 }
 
 export function createApp(svc: Services) {
-  return async function fetch(request: Request): Promise<Response> {
+  const handle = async function fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method.toUpperCase();
@@ -202,6 +203,14 @@ export function createApp(svc: Services) {
     } catch (err) {
       console.error(err);
       return json({ error: "internal_error" }, 500);
+    }
+  };
+  // Each response is a chance to publish metrics (see obs/metrics.ts).
+  return async (request: Request): Promise<Response> => {
+    try {
+      return await handle(request);
+    } finally {
+      maybeFlush();
     }
   };
 }

@@ -18,11 +18,13 @@ import { confirmOnChain, findLanded, getIntent, saveIntent, swapLegs, type Trade
 import { readTransaction } from "./txmessage.js";
 import { noteSettled } from "../notify/wallet-watch.js";
 import { logActivity } from "../account/activity.js";
+import { count } from "../obs/metrics.js";
 import { usd } from "../market/speech.js";
 
 /** Records a trade's outcome in its owner's activity log. */
 async function logOutcome(svc: Services, intent: TradeIntent): Promise<void> {
   if (intent.status !== "confirmed" && intent.status !== "failed") return;
+  if (intent.status === "confirmed") count("TradesConfirmed");
   const what = `${intent.side === "buy" ? "Buy" : "Sale"} of ${usd(intent.usd)} of ${listingByTicker(intent.ticker)?.token ?? intent.ticker}`;
   await logActivity(svc.store, intent.sub, {
     at: svc.now(),

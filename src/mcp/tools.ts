@@ -38,6 +38,7 @@ import { fail, say, type Result } from "./result.js";
 import { pinRefusal, registerProTools } from "./tools-pro.js";
 import { checkPin } from "../auth/pin.js";
 import { firstSentence, logActivity } from "../account/activity.js";
+import { count, recordLatency } from "../obs/metrics.js";
 import { getGuardrails, inWindow, nextLocal, recordSpend, spentToday } from "../chain/guardrails.js";
 import { zoneParts } from "../market/zones.js";
 import { impactAt } from "../chain/depth.js";
@@ -269,6 +270,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
       const started = performance.now();
       try {
         const result = (await cb(...a)) as Result;
+        if (result.isError) count("ToolErrors");
         const args = (a[0] ?? {}) as Record<string, unknown>;
         // A deletion that worked leaves nothing behind, not even its own log line.
         const erased = name === "delete_my_data" && !result.isError && args.confirm === true;
@@ -280,6 +282,7 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
         return result;
       } finally {
         recordToolTime(name, performance.now() - started);
+        recordLatency(name, performance.now() - started);
       }
     }) as never)) as typeof server.registerTool;
 
