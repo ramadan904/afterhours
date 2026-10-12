@@ -39,6 +39,7 @@ import { registerProTools } from "./tools-pro.js";
 import { getGuardrails, inWindow, nextLocal, recordSpend, spentToday } from "../chain/guardrails.js";
 import { zoneParts } from "../market/zones.js";
 import { impactAt } from "../chain/depth.js";
+import { readBetas, splitMove, type MoveSplit } from "../market/beta.js";
 
 export interface Caller {
   sub: string;
@@ -215,6 +216,14 @@ const intentShape = {
   triggerDirection: z.enum(["above", "below"]).nullable(),
   triggeredAt: z.string().nullable(),
 };
+
+/** "Most of that is Tesla's own: …" — the market-versus-company split, spoken. */
+export function splitSentence(name: string, s: MoveSplit): string {
+  const market = `the S&P 500 token is ${s.marketBps >= 0 ? "up" : "down"} ${pct(s.marketBps)}`;
+  if (s.verdict === "mostly_market") return `That's mostly the market: ${market}, and ${name} usually moves about ${s.beta.toFixed(1)} times as much.`;
+  if (s.verdict === "mostly_own") return `Most of that is ${possessiveName(name)} own; ${market}.`;
+  return `About ${pct(Math.abs(s.explainedBps))} of that is the market, and ${pct(Math.abs(s.ownBps))} is ${possessiveName(name)} own.`;
+}
 
 /** "Your $50 buy of Tesla …": shared by trade_status, cancel_trade and the brief. */
 function tradeSentence(intent: TradeIntent, now: number, zone: Zone = EASTERN): string {
@@ -534,6 +543,10 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
           .object({ highPercent: z.number(), highAt: z.string(), lowPercent: z.number(), lowAt: z.string(), samples: z.number() })
           .nullable()
           .describe("Range of the gap since the share last traded, from the overnight tape."),
+        marketSplit: z
+          .object({ marketPercent: z.number(), explainedPercent: z.number(), ownPercent: z.number(), beta: z.number() })
+          .nullable()
+          .describe("The move split into what the market (S&P 500 token) explains at this name's beta, and the company's own."),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
@@ -551,10 +564,20 @@ export function registerTools(server: McpServer, svc: Services, caller: Caller):
             ? overnightRange(await readTape(svc, r.closedAt ?? now - 16 * 3600_000), r.ticker, r.closedAt ?? now - 16 * 3600_000)
             : null;
         const track = r.kind === "overnight_move" ? trackClause(await opensFor(svc, r.ticker)) : null;
-        return say([sampleNote(board) + gapSentence(r), rangeSentence(r, range, now, zone), verdict, track].filter(Boolean).join(" "), {
+        // Is it the company, or the whole market? The S&P 500 token stands in for the market overnight.
+        const spy = readings.find((x) => x.ticker === "SPY");
+        const split =
+          r.ticker !== "SPY" && r.ticker !== "VTI" && r.kind === "overnight_move" && r.gapBps !== null && spy?.gapBps != null
+            ? splitMove(r.gapBps, spy.gapBps, (await readBetas(svc))[r.ticker])
+            : null;
+        const marketClause = split ? splitSentence(listing.spoken, split) : null;
+        return say([sampleNote(board) + gapSentence(r), marketClause, rangeSentence(r, range, now, zone), verdict, track].filter(Boolean).join(" "), {
           dataSource: board.source,
           ...readingOut(r),
           verdict,
+          marketSplit: split
+            ? { marketPercent: split.marketBps / 100, explainedPercent: Math.round(split.explainedBps) / 100, ownPercent: Math.round(split.ownBps) / 100, beta: split.beta }
+            : null,
           overnight: range
             ? {
                 highPercent: Math.round(range.high.bps) / 100,

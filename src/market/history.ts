@@ -21,6 +21,7 @@ import type { Services } from "../services.js";
 import { LISTINGS, listingByTicker } from "./universe.js";
 import { easternToUtc, regularCloseMinute, toEasternParts } from "./session.js";
 import { SAMPLE_BOARD } from "./prices.js";
+import { dailyCloses, estimateBeta, saveBetas, type Beta } from "./beta.js";
 
 export interface Bar {
   /** Unix seconds, bar start. */
@@ -212,9 +213,11 @@ export async function readOpens(svc: Services, ticker: string): Promise<OpenReco
 export async function refreshOpenHistory(svc: Services, fetchImpl: typeof fetch = fetch, spacingMs = 2_500): Promise<{ updated: string[]; failed: string[] }> {
   const updated: string[] = [];
   const failed: string[] = [];
+  const closes = new Map<string, Map<string, number>>();
   for (const l of LISTINGS) {
     try {
       const [token, share] = await Promise.all([tokenHourly(l.ticker, fetchImpl), shareBars(l.ticker, fetchImpl)]);
+      closes.set(l.ticker, dailyCloses(share));
       const records = openRecords(token, share);
       if (records.length === 0) throw new Error("no complete opens");
       await svc.store.set(key(l.ticker), records.slice(-40));
@@ -223,6 +226,16 @@ export async function refreshOpenHistory(svc: Services, fetchImpl: typeof fetch 
       failed.push(l.ticker);
     }
     if (spacingMs) await new Promise((r) => setTimeout(r, spacingMs));
+  }
+  // The same month of share closes gives each name's beta to the S&P 500.
+  const market = closes.get("SPY");
+  if (market) {
+    const betas: Record<string, Beta> = {};
+    for (const [ticker, c] of closes) {
+      const b = ticker === "SPY" ? null : estimateBeta(c, market);
+      if (b) betas[ticker] = b;
+    }
+    await saveBetas(svc, betas);
   }
   await svc.store.set(REFRESHED, svc.now());
   return { updated, failed };

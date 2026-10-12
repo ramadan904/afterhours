@@ -57,7 +57,7 @@ describe("MCP over Streamable HTTP", () => {
     const { session } = await linked();
     const step = await session.call("check_stock", { stock: "the Tesla token" });
     expect(step.text).toBe(
-      "Using sample data. Tesla's token is up 2.1 percent since Friday's close, at $370.56. With the share market shut, that's a bet on the open tomorrow, not a hedge. Its token has called the open's direction 16 of the last 20 times.",
+      "Using sample data. Tesla's token is up 2.1 percent since Friday's close, at $370.56. Most of that is Tesla's own; the S&P 500 token is up 0.3 percent. With the share market shut, that's a bet on the open tomorrow, not a hedge. Its token has called the open's direction 16 of the last 20 times.",
     );
     const apple = await session.call("check_stock", { stock: "AAPL" });
     expect(apple.text).toContain("Apple's token is down 1.4 percent");
