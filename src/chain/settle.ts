@@ -99,8 +99,8 @@ export async function refreshIntent(svc: Services, intent: TradeIntent): Promise
   const now = svc.now();
   try {
     if (intent.status === "submitted" && intent.signature) {
-      const check = await confirmOnChain(svc.rpcUrl, intent.signature, intent.wallet).catch(() => ({ status: "pending" as const, error: undefined }));
-      if (check.status !== "pending") {
+      const check = await confirmOnChain(svc.rpcUrl, intent.signature, intent.wallet, intent.builtBlockhashes ?? []).catch(() => ({ status: "pending" as const, error: undefined }));
+      if (check.status === "confirmed" || check.status === "failed") {
         intent.status = check.status;
         intent.error = check.error;
         await saveIntent(svc.store, intent, now);
@@ -108,15 +108,17 @@ export async function refreshIntent(svc: Services, intent: TradeIntent): Promise
         await logOutcome(svc, intent);
         return intent;
       }
-      // The reported signature may be bogus or dropped, while the wallet's real
-      // one (from a blink or QR code) landed. Look for ours before giving up.
+      // The reported signature may be bogus, foreign or dropped, while the
+      // wallet's real one (from a blink or QR code) landed. Look for ours.
       const landed = await findLanded(svc.rpcUrl, intent.wallet, intent.builtBlockhashes ?? [], intent.builtAt ?? intent.createdAt);
       if (landed) return settle(svc, intent, landed);
-      if (now - (intent.submittedAt ?? 0) > NEVER_LANDED_MS && intent.expiresAt > now) {
-        // Nothing on chain: let the owner sign again.
-        intent.status = "awaiting_signature";
+      const foreign = check.status === "foreign";
+      if (foreign || now - (intent.submittedAt ?? 0) > NEVER_LANDED_MS) {
+        // Not this trade, or nothing on chain: give it back to its owner while
+        // it can still be signed, and let it expire honestly when it can't.
+        intent.status = intent.expiresAt > now ? "awaiting_signature" : "expired";
         intent.signature = undefined;
-        intent.error = "the last signature never landed on Solana";
+        intent.error = foreign ? check.error : "the last signature never landed on Solana";
         await saveIntent(svc.store, intent, now);
       }
       return intent;

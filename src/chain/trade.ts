@@ -279,17 +279,20 @@ export class JupiterSwap {
 /**
  * Whether a submitted trade landed, read from Solana itself.
  *
- * The confirm page reports a signature, but a page can report anything. So a
- * trade only counts as confirmed when the transaction exists on chain,
- * succeeded, and was signed and paid for by the wallet the trade was proposed
- * for (the fee payer is always the first account key).
+ * The confirm page (or a wallet's Action callback) reports a signature, but a
+ * page can report anything, including an old, real transaction from the same
+ * wallet. So a reported transaction only counts when it was paid for by the
+ * proposal's wallet (the fee payer is the first account key) AND was built
+ * against a blockhash Afterhours handed out for this proposal. Anything else
+ * is "foreign": not this trade, whatever it was.
  */
 export async function confirmOnChain(
   rpcUrl: string,
   signature: string,
   wallet: string,
+  blockhashes: string[],
   fetchImpl: typeof fetch = fetch,
-): Promise<{ status: "confirmed" | "failed" | "pending"; error?: string }> {
+): Promise<{ status: "confirmed" | "failed" | "pending" | "foreign"; error?: string }> {
   const res = await fetchImpl(rpcUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -304,14 +307,17 @@ export async function confirmOnChain(
   const body = (await res.json()) as {
     result?: {
       meta?: { err: unknown } | null;
-      transaction?: { message?: { accountKeys?: ({ pubkey: string; signer?: boolean } | string)[] } };
+      transaction?: { message?: { accountKeys?: ({ pubkey: string; signer?: boolean } | string)[]; recentBlockhash?: string } };
     } | null;
   };
   const tx = body.result;
   if (!tx) return { status: "pending" };
   const first = tx.transaction?.message?.accountKeys?.[0];
   const payer = typeof first === "string" ? first : first?.pubkey;
-  if (payer !== wallet) return { status: "failed", error: "that transaction wasn't signed by your linked wallet" };
+  if (payer !== wallet) return { status: "foreign", error: "that transaction wasn't signed by your linked wallet" };
+  if (!blockhashes.includes(tx.transaction?.message?.recentBlockhash ?? "")) {
+    return { status: "foreign", error: "that transaction isn't the one built for this trade" };
+  }
   if (tx.meta?.err) return { status: "failed", error: "the swap failed on chain" };
   return { status: "confirmed" };
 }

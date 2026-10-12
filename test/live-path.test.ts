@@ -71,14 +71,24 @@ describe("live data path (Jupiter + Solana RPC shapes)", () => {
     expect(built.receive).toMatch(/^0\.17\d+ NVDAx$/);
     expect(state.calls).toContain("/swap/v1/quote");
 
-    // A signature from someone else's transaction is not a confirmation.
+    // A signature from someone else's transaction is not a confirmation:
+    // the trade goes back to its owner, still signable.
     const forged = "3".repeat(88);
     state.transactions[forged] = { payer: "SomeoneElse1111111111111111111111111111111" };
     await post("/api/trade/submitted", { code, signature: forged });
     const after = await (await h.app(new Request(`${BASE}/api/trade?code=${code}`))).json();
-    expect(after.status).toBe("failed");
+    expect(after.status).toBe("awaiting_signature");
     expect(after.error).toContain("wasn't signed by your linked wallet");
-    expect((await session.call("trade_status", {})).text).toContain("couldn't be confirmed");
+
+    // Nor is an old, real transaction from the same wallet: whoever heard the
+    // code can't "confirm" the trade with it.
+    const old = "8".repeat(88);
+    state.transactions[old] = { payer: wallet.address, blockhash: "11111111111111111111111111111111" };
+    await post("/api/trade/submitted", { code, signature: old });
+    const again = await (await h.app(new Request(`${BASE}/api/trade?code=${code}`))).json();
+    expect(again.status).toBe("awaiting_signature");
+    expect(again.error).toContain("isn't the one built for this trade");
+    expect((await session.call("trade_status", {})).text).toContain("waiting for your signature");
   });
 
   it("marks a trade confirmed once the wallet's transaction lands", async () => {
@@ -86,13 +96,14 @@ describe("live data path (Jupiter + Solana RPC shapes)", () => {
     const { tokens, wallet } = await linkWallet(h.app);
     const session = await mcp(h, tokens.access_token);
     const { code } = (await session.call("propose_trade", { stock: "Tesla", side: "buy", amount_usd: 10 })).structured as { code: string };
+    await h.app(new Request(`${BASE}/api/trade/build`, { method: "POST", body: JSON.stringify({ code }) }));
     const sig = "4".repeat(88);
     await h.app(new Request(`${BASE}/api/trade/submitted`, { method: "POST", body: JSON.stringify({ code, signature: sig }) }));
 
     let view = await (await h.app(new Request(`${BASE}/api/trade?code=${code}`))).json();
     expect(view.status).toBe("submitted"); // not on chain yet
 
-    state.transactions[sig] = { payer: wallet.address };
+    state.transactions[sig] = { payer: wallet.address, blockhash: state.built!.at(-1) };
     view = await (await h.app(new Request(`${BASE}/api/trade?code=${code}`))).json();
     expect(view.status).toBe("confirmed");
     expect((await session.call("trade_status", { code })).text).toBe("Your $10 buy of Tesla is confirmed on Solana.");

@@ -112,7 +112,7 @@ export function fakeUpstreams(state: FakeState) {
                 preTokenBalances: Object.keys(tx.deltas ?? {}).map((mint, i) => ({ accountIndex: i + 1, mint, owner: tx.payer, uiTokenAmount: { uiAmount: 1000, uiAmountString: "1000" } })),
                 postTokenBalances: Object.entries(tx.deltas ?? {}).map(([mint, d], i) => ({ accountIndex: i + 1, mint, owner: tx.payer, uiTokenAmount: { uiAmount: 1000 + d, uiAmountString: String(1000 + d) } })),
               },
-              transaction: { message: { accountKeys: [{ pubkey: tx.payer, signer: true }] } },
+              transaction: { message: { accountKeys: [{ pubkey: tx.payer, signer: true }], recentBlockhash: tx.blockhash ?? bs58.encode(new Uint8Array(32).fill(7)) } },
             }
           : null,
       });

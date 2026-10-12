@@ -69,6 +69,27 @@ describe("a bogus signature can't freeze a trade", () => {
     expect(after.status).toBe("awaiting_signature");
     expect(after.error).toContain("never landed");
   });
+
+  it("lets a trade submitted at the last minute expire, rather than stay 'sent' forever", async () => {
+    let now = SUNDAY;
+    const state: FakeState = { balances: {}, transactions: {}, shareUpdatedAt: new Date(FRIDAY_CLOSE).toISOString(), calls: [] };
+    const upstream = fakeUpstreams(state);
+    vi.stubGlobal("fetch", upstream);
+    const h = harness({
+      sample: false,
+      now: () => now,
+      prices: new CachedPrices(new JupiterPrices({ endpoint: "http://jup.test", fetchImpl: upstream }), 10_000, 120_000, () => now),
+      holdings: new RpcHoldings("http://rpc.test", upstream),
+      rpcUrl: "http://rpc.test",
+    });
+    const session = await mcp(h, await linkWatch(h.app, wallet().address));
+    const { code } = (await session.call("propose_trade", { stock: "Tesla", side: "buy", amount_usd: 10 })).structured as { code: string };
+    now += 14 * 60_000;
+    await h.app(new Request(`${BASE}/api/trade/submitted`, { method: "POST", body: JSON.stringify({ code, signature: "5".repeat(88) }) }));
+    now += 3 * 60_000;
+    const view = await (await h.app(new Request(`${BASE}/api/trade?code=${code}`))).json();
+    expect(view.status).toBe("expired");
+  });
 });
 
 describe("deployment guards", () => {
